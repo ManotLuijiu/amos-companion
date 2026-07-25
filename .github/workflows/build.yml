@@ -56,29 +56,25 @@ jobs:
           echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
           echo "Found DMG: $DMG"
 
-      - name: Install AWS CLI + jq
-        run: pip install awscli && pip install jq
+      - name: Install AWS CLI
+        run: |
+          curl -sL "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "awscliv2.pkg"
+          sudo installer -pkg awsclv2.pkg -target /
+          rm awsclv2.pkg
 
       - name: Upload to R2
         run: |
-          # Extract version from tag (e.g., companion/v1.0.0 -> 1.0.0)
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#companion/}"
           VERSION="${VERSION#v}"
-          
-          # Use dispatch input if provided
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          
           ARCH=${{ matrix.suffix }}
-          
-          # Upload to R2 with versioned filename
           aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_${ARCH}.dmg" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
-          
           echo "Uploaded: AMOS_Companion_${VERSION}_${ARCH}.dmg"
 
       - name: Create GitHub Release
@@ -125,21 +121,16 @@ jobs:
 
       - name: Upload to R2
         run: |
-          # Extract version from tag
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#companion/}"
           VERSION="${VERSION#v}"
-          
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          
-          # Upload to R2
           aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_amd64.AppImage" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
-          
           echo "Uploaded: AMOS_Companion_${VERSION}_amd64.AppImage"
 
       - name: Create GitHub Release
@@ -177,27 +168,26 @@ jobs:
           echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
           echo "Found EXE: $($exe.FullName)"
 
-      - name: Install AWS CLI + jq
+      - name: Install AWS CLI
         shell: pwsh
-        run: pip install awscli && pip install jq
+        run: |
+          curl -sL "https://awscli.amazonaws.com/AWSCLIV2.msi" -o "awscliv2.msi"
+          Start-Process msiexec -Wait -ArgumentList '/i', 'awscliv2.msi', '/quiet'
+          Remove-Item awscliv2.msi
 
       - name: Upload to R2
         shell: pwsh
         run: |
-          # Extract version from tag
           $version = "${{ github.ref_name }}"
           $version = $version -replace "^companion/", ""
           $version = $version -replace "^v", ""
-          
           if ("${{ inputs.version }}") {
             $version = "${{ inputs.version }}"
           }
-          
           aws s3 cp "${{ steps.find-exe.outputs.exe_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${version}_x64-setup.exe" `
             --endpoint-url "${{ env.R2_ENDPOINT }}" `
             --region auto `
             --acl public-read
-          
           Write-Host "Uploaded: AMOS_Companion_${version}_x64-setup.exe"
 
       - name: Create GitHub Release
