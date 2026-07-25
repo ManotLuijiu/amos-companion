@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # macOS (Intel and Apple Silicon)
   build-macos:
     strategy:
       fail-fast: false
@@ -41,31 +40,23 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
 
-      - name: Find DMG
-        id: find-dmg
-        run: |
-          DMG=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -1)
-          echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
+      - name: Install AWS CLI
+        run: pip install awscli
 
       - name: Upload to R2
         run: |
-          # Get version from tag or use default
           VERSION=${GITHUB_REF_NAME#v}
           [ -z "$VERSION" ] && VERSION="0.2.0"
-          
-          # Upload to R2 using AWS CLI
           ARCH=${{ matrix.suffix }}
-          KEY="companion/AMOS Companion_${VERSION}_${ARCH}.dmg"
-          
-          aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://amos-releases/$KEY" \
+          aws s3 cp "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/" "s3://amos-releases/companion/" \
             --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
             --region auto \
-            --acl public-read
+            --acl public-read \
+            --recursive
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
 
-  # Linux
   build-linux:
     runs-on: ubuntu-24.04
     steps:
@@ -90,26 +81,22 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Find AppImage
-        id: find-appimage
-        run: |
-          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" | head -1)
-          echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
+      - name: Install AWS CLI
+        run: pip install awscli
 
       - name: Upload to R2
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           [ -z "$VERSION" ] && VERSION="0.2.0"
-          
-          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://amos-releases/companion/AMOS Companion_${VERSION}_amd64.AppImage" \
+          aws s3 cp "src-tauri/target/release/bundle/appimage/" "s3://amos-releases/companion/" \
             --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
             --region auto \
-            --acl public-read
+            --acl public-read \
+            --recursive
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
 
-  # Windows
   build-windows:
     runs-on: windows-latest
     steps:
@@ -129,23 +116,19 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Find MSI
-        id: find-msi
-        shell: pwsh
-        run: |
-          $msi = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter "*.msi" | Select-Object -First 1
-          echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+      - name: Install AWS CLI
+        run: pip install awscli
 
       - name: Upload to R2
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME -replace "^v", ""
           if (-not $version) { $version = "0.2.0" }
-          
-          aws s3 cp "${{ steps.find-msi.outputs.msi_path }}" "s3://amos-releases/companion/AMOS Companion_${version}_x64-setup.exe" \
-            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
-            --region auto \
-            --acl public-read
+          aws s3 cp "src-tauri/target/release/bundle/msi/" "s3://amos-releases/companion/" `
+            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" `
+            --region auto `
+            --acl public-read `
+            --recursive
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
