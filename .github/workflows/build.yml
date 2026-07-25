@@ -2,14 +2,21 @@ name: Build AMOS Companion
 
 on:
   push:
-    branches: [main]
+    tags:
+      - "companion/v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g., 1.0.0)"
+        required: false
+        type: string
 
 env:
   R2_ENDPOINT: "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com"
   R2_BUCKET: "amos-releases"
 
 jobs:
+  # Build for macOS (Intel and Apple Silicon)
   build-macos:
     strategy:
       fail-fast: false
@@ -19,30 +26,26 @@ jobs:
             arch: aarch64
             suffix: aarch64
             target: aarch64-apple-darwin
-            ext: dmg
           - platform: macos-14
             arch: x86_64
             suffix: x86_64
             target: x86_64-apple-darwin
-            ext: dmg
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Rust targets
         if: matrix.arch == 'x86_64'
         run: rustup target add x86_64-apple-darwin
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build Tauri app
-        run: npm run tauri build -- --target ${{ matrix.target }}
+        run: bun run tauri build --target ${{ matrix.target }}
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
 
@@ -51,43 +54,50 @@ jobs:
         run: |
           DMG=$(find src-tauri/target -name "*.dmg" -type f | grep bundle | head -1)
           echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
+          echo "Found DMG: $DMG"
 
-      - name: Install AWS CLI
-        run: pip install awscli
+      - name: Install AWS CLI + jq
+        run: pip install awscli && pip install jq
 
       - name: Upload to R2
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          [ -z "$VERSION" ] && VERSION="0.2.0"
+          # Extract version from tag (e.g., companion/v1.0.0 -> 1.0.0)
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          
+          # Use dispatch input if provided
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          
           ARCH=${{ matrix.suffix }}
+          
+          # Upload to R2 with versioned filename
           aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_${ARCH}.dmg" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
+          
+          echo "Uploaded: AMOS_Companion_${VERSION}_${ARCH}.dmg"
 
-          # Cleanup: Keep only last 3 DMG files
-          echo "=== Cleaning up old builds (keeping last 3) ==="
-          aws s3 ls "s3://${{ env.R2_BUCKET }}/companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto | grep "\.dmg$" | awk '{print $4}' | while read file; do
-            # Get all DMG files sorted by date, keep last 3
-            aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`.dmg`)]' --output json | \
-              jq -r '.[] | "\(.Key) \(.LastModified)"' | sort -k2 -r | tail -n +4 | awk '{print $1}' | while read oldfile; do
-              echo "Deleting: $oldfile"
-              aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
-            done
-          done
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.find-dmg.outputs.dmg_path }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
 
+  # Build for Linux (AppImage)
   build-linux:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -98,58 +108,66 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build Tauri app
-        run: npm run tauri build
+        run: bun run tauri build
 
       - name: Find AppImage
         id: find-appimage
         run: |
           APPIMAGE=$(find src-tauri/target -name "*.AppImage" -type f | grep bundle | head -1)
           echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
+          echo "Found AppImage: $APPIMAGE"
 
       - name: Install AWS CLI + jq
         run: pip install awscli && pip install jq
 
       - name: Upload to R2
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          [ -z "$VERSION" ] && VERSION="0.2.0"
+          # Extract version from tag
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          
+          # Upload to R2
           aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_amd64.AppImage" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
+          
+          echo "Uploaded: AMOS_Companion_${VERSION}_amd64.AppImage"
 
-          # Cleanup: Keep only last 3 AppImage files
-          echo "=== Cleaning up old AppImage builds (keeping last 3) ==="
-          aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`AppImage`)]' --output json | \
-            jq -r '.[] | "\(.Key) \(.LastModified)"' | sort -k2 -r | tail -n +4 | awk '{print $1}' | while read oldfile; do
-            echo "Deleting: $oldfile"
-            aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
-          done
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.find-appimage.outputs.appimage_path }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
 
+  # Build for Windows (NSIS installer)
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build Tauri app
-        run: npm run tauri build
+        run: bun run tauri build
 
       - name: Find EXE Installer
         id: find-exe
@@ -157,28 +175,36 @@ jobs:
         run: |
           $exe = Get-ChildItem -Path src-tauri/target -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "bundle" -and $_.FullName -notmatch "WebView2" } | Select-Object -First 1
           echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          echo "Found EXE: $($exe.FullName)"
 
-      - name: Install AWS CLI
-        run: pip install awscli
+      - name: Install AWS CLI + jq
+        shell: pwsh
+        run: pip install awscli && pip install jq
 
       - name: Upload to R2
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME -replace "^v", ""
-          if (-not $version) { $version = "0.2.0" }
+          # Extract version from tag
+          $version = "${{ github.ref_name }}"
+          $version = $version -replace "^companion/", ""
+          $version = $version -replace "^v", ""
+          
+          if ("${{ inputs.version }}") {
+            $version = "${{ inputs.version }}"
+          }
+          
           aws s3 cp "${{ steps.find-exe.outputs.exe_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${version}_x64-setup.exe" `
             --endpoint-url "${{ env.R2_ENDPOINT }}" `
             --region auto `
             --acl public-read
+          
+          Write-Host "Uploaded: AMOS_Companion_${version}_x64-setup.exe"
 
-          # Cleanup: Keep only last 3 EXE files
-          echo "=== Cleaning up old EXE builds (keeping last 3) ==="
-          $files = aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`x64-setup.exe`)]' --output json | jq -r '.[] | "\(.Key) \(.LastModified)"'
-          $files | Sort-Object { [DateTime]::Parse($_.Split()[1]) } -Descending | Select-Object -Skip 3 | ForEach-Object { 
-            $oldfile = $_.Split()[0]
-            echo "Deleting: $oldfile"
-            aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
-          }
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.find-exe.outputs.exe_path }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
