@@ -17,6 +17,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
   AWS_DEFAULT_REGION: "auto"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
 permissions:
   contents: write
