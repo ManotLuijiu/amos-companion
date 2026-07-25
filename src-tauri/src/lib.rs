@@ -149,16 +149,19 @@ async fn start_agent(
     
     if device_key.is_none() || device_secret.is_none() {
         info!("No device-agent credentials found, registering...");
+        
+        // Get workspace_id before dropping config
+        let ws_id = config.get_workspace_id().unwrap_or_default();
         drop(config); // Release lock for HTTP call
         
-        let ws_id = config.get_workspace_id().unwrap_or_default();
         let hostname = wm::get_hostname();
         
         match wm::register_device_agent(&api_url, &ws_id, &hostname).await {
             Ok((api_key, api_secret, agent_id)) => {
                 config = state.config_store.lock().await;
-                config.set_device_agent_key(Some(api_key));
-                config.set_device_agent_secret(Some(api_secret));
+                // Clone before saving since we'll use them again
+                config.set_device_agent_key(Some(api_key.clone()));
+                config.set_device_agent_secret(Some(api_secret.clone()));
                 config.save().map_err(|e| format!("Failed to save credentials: {}", e))?;
                 
                 info!("Device-agent registered successfully");
