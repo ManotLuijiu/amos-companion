@@ -1,12 +1,66 @@
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
+/// Sign in with email and password using better-auth API
+/// Returns (user_id, email) on success
+pub async fn sign_in(
+    api_url: &str,
+    email: &str,
+    password: &str,
+) -> Result<(String, String), String> {
+    info!("Signing in as {}", email);
+    
+    let url = format!("{}/api/auth/sign-in/email-password", api_url.trim_end_matches('/'));
+    
+    #[derive(Serialize)]
+    struct SignInRequest<'a> {
+        email: &'a str,
+        password: &'a str,
+    }
+    
+    #[derive(Deserialize)]
+    struct SessionResponse {
+        user: UserResponse,
+    }
+    
+    #[derive(Deserialize)]
+    struct UserResponse {
+        id: String,
+        email: String,
+        email_verified: bool,
+    }
+    
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&SignInRequest { email, password })
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to AMOS API: {}", e))?;
+    
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        error!("Sign in failed: {} - {}", status, body);
+        return Err(format!("Sign in failed: {} - {}", status, body));
+    }
+    
+    let session: SessionResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse sign-in response: {}", e))?;
+    
+    info!("Sign in successful: {} ({})", session.user.email, session.user.id);
+    Ok((session.user.id, session.user.email))
+}
+
 /// Get or create the default workspace for a user
 /// This is called during the auto-setup flow
 pub async fn ensure_workspace_exists(
     api_url: &str,
+    user_id: &str,
 ) -> Result<String, String> {
-    info!("Checking/creating default workspace at {}", api_url);
+    info!("Checking/creating default workspace at {} for user {}", api_url, user_id);
     
     // Call GET /auth/workspace/default - this creates if not exists
     let url = format!("{}/auth/workspace/default", api_url.trim_end_matches('/'));
@@ -14,6 +68,7 @@ pub async fn ensure_workspace_exists(
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
+        .header("X-User-ID", user_id)
         .send()
         .await
         .map_err(|e| format!("Failed to connect to AMOS API: {}", e))?;
@@ -45,9 +100,10 @@ pub async fn ensure_workspace_exists(
 pub async fn register_device_agent(
     api_url: &str,
     workspace_id: &str,
+    user_id: &str,
     label: &str,
 ) -> Result<(String, String, String), String> {
-    info!("Registering device-agent: {} for workspace {}", label, workspace_id);
+    info!("Registering device-agent: {} for workspace {} (user: {})", label, workspace_id, user_id);
     
     let url = format!("{}/auth/device-agent/register", api_url.trim_end_matches('/'));
     
@@ -67,6 +123,7 @@ pub async fn register_device_agent(
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
+        .header("X-User-ID", user_id)
         .json(&RegisterRequest {
             label,
             workspace_id,

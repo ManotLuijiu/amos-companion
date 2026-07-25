@@ -98,12 +98,53 @@ async fn get_device_agent_status() -> Result<DeviceAgentStatus, String> {
 }
 
 #[tauri::command]
+async fn sign_in(
+    state: tauri::State<'_, AppState>,
+    api_url: String,
+    email: String,
+    password: String,
+) -> Result<(), String> {
+    info!("Signing in as {}", email);
+    
+    // Sign in via better-auth API
+    let (user_id, user_email) = wm::sign_in(&api_url, &email, &password).await?;
+    
+    // Save to config
+    let mut config = state.config_store.lock().await;
+    config.set_api_url(api_url.clone());
+    config.set_user_id(Some(user_id.clone()));
+    config.set_user_email(Some(user_email.clone()));
+    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+    
+    info!("Sign in successful: {} ({})", user_email, user_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_user_info(state: tauri::State<'_, AppState>) -> Result<Option<(String, String)>, String> {
+    let config = state.config_store.lock().await;
+    let user_id = config.get_user_id();
+    let user_email = config.get_user_email();
+    
+    match (user_id, user_email) {
+        (Some(id), Some(email)) => Ok(Some((id, email))),
+        _ => Ok(None),
+    }
+}
+
+#[tauri::command]
 async fn start_agent(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mut config = state.config_store.lock().await;
     let api_url = config.get_api_url();
+    
+    // ─── Check if user is signed in ─────────────────────────────────────────────
+    let user_id = config.get_user_id().ok_or_else(|| {
+        error!("Not signed in - please sign in first");
+        "Please sign in first using sign_in()".to_string()
+    })?;
     
     // Auto-install device-agent if not present
     if !installer::is_installed() {
@@ -128,7 +169,7 @@ async fn start_agent(
         info!("No workspace found, creating default workspace...");
         drop(config); // Release lock for HTTP call
         
-        match wm::ensure_workspace_exists(&api_url).await {
+        match wm::ensure_workspace_exists(&api_url, &user_id).await {
             Ok(ws_id) => {
                 config = state.config_store.lock().await;
                 config.set_workspace_id(Some(ws_id.clone()));
@@ -156,7 +197,7 @@ async fn start_agent(
         
         let hostname = wm::get_hostname();
         
-        match wm::register_device_agent(&api_url, &ws_id, &hostname).await {
+        match wm::register_device_agent(&api_url, &ws_id, &user_id, &hostname).await {
             Ok((api_key, api_secret, agent_id)) => {
                 config = state.config_store.lock().await;
                 // Clone before saving since we'll use them again
@@ -386,6 +427,8 @@ pub fn run() {
             open_web_ui,
             install_device_agent,
             get_device_agent_status,
+            sign_in,
+            get_user_info,
             get_devices,
             get_device_info,
             capture_screenshot,

@@ -58,6 +58,7 @@ let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let scrcpyEnabled = false;
 let scrcpyAvailable = false;
 let deviceAgentInstalled = false;
+let userInfo: { id: string; email: string } | null = null;
 let logEntries: LogEntry[] = [];
 const maxLogs = 500;
 
@@ -170,10 +171,117 @@ function build(): HTMLElement {
 	root.className = "app-container";
 
 	root.append(buildHeader());
+	root.append(buildLoginSection());
 	root.append(buildMainContent());
 	root.append(buildFooter());
 
 	return root;
+}
+
+function buildLoginSection(): HTMLElement {
+	const section = document.createElement("section");
+	section.id = "login-section";
+	section.className = "login-section";
+	section.style.display = "none";
+
+	const container = document.createElement("div");
+	container.className = "login-container";
+
+	const title = document.createElement("h2");
+	title.textContent = "Sign in to AMOS";
+
+	const form = document.createElement("form");
+	form.id = "login-form";
+
+	const apiUrlLabel = document.createElement("label");
+	apiUrlLabel.htmlFor = "login-api-url";
+	apiUrlLabel.textContent = "API URL";
+
+	const apiUrlInput = document.createElement("input");
+	apiUrlInput.type = "url";
+	apiUrlInput.id = "login-api-url";
+	apiUrlInput.placeholder = "https://api.amos.moo-vpn.online";
+	apiUrlInput.required = true;
+
+	const emailLabel = document.createElement("label");
+	emailLabel.htmlFor = "login-email";
+	emailLabel.textContent = "Email";
+
+	const emailInput = document.createElement("input");
+	emailInput.type = "email";
+	emailInput.id = "login-email";
+	emailInput.placeholder = "your@email.com";
+	emailInput.required = true;
+
+	const passwordLabel = document.createElement("label");
+	passwordLabel.htmlFor = "login-password";
+	passwordLabel.textContent = "Password";
+
+	const passwordInput = document.createElement("input");
+	passwordInput.type = "password";
+	passwordInput.id = "login-password";
+	passwordInput.placeholder = "Password";
+	passwordInput.required = true;
+
+	const errorDiv = document.createElement("div");
+	errorDiv.id = "login-error";
+	errorDiv.className = "login-error";
+	errorDiv.style.display = "none";
+
+	const submitBtn = document.createElement("button");
+	submitBtn.type = "submit";
+	submitBtn.className = "btn btn-primary";
+	submitBtn.textContent = "Sign In";
+
+	form.append(apiUrlLabel, apiUrlInput, emailLabel, emailInput, passwordLabel, passwordInput, errorDiv, submitBtn);
+	form.addEventListener("submit", handleLogin);
+
+	container.append(title, form);
+	section.append(container);
+
+	return section;
+}
+
+async function handleLogin(event: Event): Promise<void> {
+	event.preventDefault();
+
+	const form = event.target as HTMLFormElement;
+	const apiUrlInput = form.querySelector("#login-api-url") as HTMLInputElement;
+	const emailInput = form.querySelector("#login-email") as HTMLInputElement;
+	const passwordInput = form.querySelector("#login-password") as HTMLInputElement;
+	const errorDiv = form.querySelector("#login-error") as HTMLDivElement;
+	const submitBtn = form.querySelector("button[type=submit]") as HTMLButtonElement;
+
+	const apiUrl = apiUrlInput.value;
+	const email = emailInput.value;
+	const password = passwordInput.value;
+
+	submitBtn.disabled = true;
+	submitBtn.textContent = "Signing in...";
+	errorDiv.style.display = "none";
+
+	try {
+		await invoke("sign_in", { apiUrl, email, password });
+		userInfo = { id: "", email };
+
+		const loginSection = document.getElementById("login-section");
+		const mainContent = document.getElementById("main-content");
+		if (loginSection) loginSection.style.display = "none";
+		if (mainContent) mainContent.style.display = "block";
+
+		addLog("info", `Signed in as ${email}`);
+
+		// Refresh status now that we're logged in
+		await refreshStatus();
+	} catch (e) {
+		const errorMsg = e instanceof Error ? e.message : String(e);
+		addLog("error", `Login failed: ${errorMsg}`);
+		errorDiv.textContent = errorMsg;
+		errorDiv.style.display = "block";
+	} finally {
+		submitBtn.disabled = false;
+		submitBtn.textContent = "Sign In";
+	}
 }
 
 function buildHeader(): HTMLElement {
@@ -220,6 +328,7 @@ function buildHeader(): HTMLElement {
 function buildMainContent(): HTMLElement {
 	const main = document.createElement("main");
 	main.className = "app-main";
+	main.id = "main-content";
 
 	// Left Panel - Controls
 	const leftPanel = document.createElement("div");
@@ -892,6 +1001,27 @@ export async function init(): Promise<void> {
 	const app = document.getElementById("app")!;
 	app.appendChild(build());
 	setupEventListeners();
+
+	// Check if user is logged in
+	try {
+		const user = await invoke<[string, string] | null>("get_user_info");
+		if (user) {
+			userInfo = { id: user[0], email: user[1] };
+			addLog("info", `Logged in as ${userInfo.email}`);
+			const loginSection = document.getElementById("login-section");
+			const mainContent = document.getElementById("main-content");
+			if (loginSection) loginSection.style.display = "none";
+			if (mainContent) mainContent.style.display = "block";
+		} else {
+			addLog("info", "Please sign in to continue");
+			const loginSection = document.getElementById("login-section");
+			const mainContent = document.getElementById("main-content");
+			if (loginSection) loginSection.style.display = "flex";
+			if (mainContent) mainContent.style.display = "none";
+		}
+	} catch (e) {
+		addLog("warn", `Could not check login status: ${e}`);
+	}
 
 	// Listen for status updates from Rust backend
 	await listen<AgentStatus>("status-update", (event) => {

@@ -7,8 +7,10 @@ use tracing::info;
 pub struct Config {
     /// URL of the AMOS API server.
     pub api_url: String,
-    /// Workspace API key (optional, for web UI integration).
-    pub api_key: Option<String>,
+    /// AMOS User ID (from login).
+    pub user_id: Option<String>,
+    /// User email (from login).
+    pub user_email: Option<String>,
     /// Unique agent ID for this installation.
     pub agent_id: String,
     /// WebSocket URL for real-time commands from AMOS API.
@@ -25,7 +27,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             api_url: String::from("http://127.0.0.1:8100"),
-            api_key: None,
+            user_id: None,
+            user_email: None,
             agent_id: uuid::Uuid::new_v4().to_string(),
             ws_url: None,
             device_agent_key: None,
@@ -85,14 +88,24 @@ impl ConfigStore {
         self.config.api_url = url;
     }
 
-    /// Get the API key.
-    pub fn get_api_key(&self) -> Option<String> {
-        self.config.api_key.clone()
+    /// Get the user ID.
+    pub fn get_user_id(&self) -> Option<String> {
+        self.config.user_id.clone()
     }
 
-    /// Set the API key.
-    pub fn set_api_key(&mut self, key: Option<String>) {
-        self.config.api_key = key;
+    /// Set the user ID.
+    pub fn set_user_id(&mut self, user_id: Option<String>) {
+        self.config.user_id = user_id;
+    }
+
+    /// Get the user email.
+    pub fn get_user_email(&self) -> Option<String> {
+        self.config.user_email.clone()
+    }
+
+    /// Set the user email.
+    pub fn set_user_email(&mut self, email: Option<String>) {
+        self.config.user_email = email;
     }
 
     /// Get the agent ID.

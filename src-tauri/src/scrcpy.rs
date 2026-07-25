@@ -41,11 +41,14 @@ pub fn is_scrcpy_available() -> bool {
 
 /// Get scrcpy version
 pub fn get_scrcpy_version() -> Option<String> {
+    info!("Checking scrcpy version");
     let scrcpy_path = find_scrcpy()?;
     let output = Command::new(&scrcpy_path).arg("--version").output().ok()?;
 
     if output.status.success() {
-        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        info!("scrcpy version: {}", version);
+        Some(version)
     } else {
         None
     }
