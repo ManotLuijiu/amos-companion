@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 /// Get or create the default workspace for a user
@@ -24,7 +25,7 @@ pub async fn ensure_workspace_exists(
         return Err(format!("Failed to get/create workspace: {} - {}", status, body));
     }
     
-    #[derive(serde::Deserialize)]
+    #[derive(Deserialize)]
     struct WorkspaceResponse {
         id: String,
         name: String,
@@ -50,13 +51,13 @@ pub async fn register_device_agent(
     
     let url = format!("{}/auth/device-agent/register", api_url.trim_end_matches('/'));
     
-    #[derive(serde::Serialize)]
+    #[derive(Serialize)]
     struct RegisterRequest<'a> {
         label: &'a str,
         workspace_id: &'a str,
     }
     
-    #[derive(serde::Deserialize)]
+    #[derive(Deserialize)]
     struct RegisterResponse {
         api_key: String,
         api_secret: String,

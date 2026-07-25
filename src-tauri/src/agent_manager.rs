@@ -90,6 +90,9 @@ impl AgentManager {
             Err(e) => warn!("uv check failed: {}", e),
         }
 
+        // Clone for both uses since command takes ownership
+        let agent_cwd_clone = agent_cwd.clone();
+
         // Try uv first; fall back to python3 if uv is not available
         let mut cmd = Command::new("uv");
         cmd.arg("run")
@@ -98,7 +101,7 @@ impl AgentManager {
             .arg("amos_device_agent")
             .env("AMOS_API_URL", api_url)
             .env("AMOS_AGENT_ID", agent_id)
-            .current_dir(agent_cwd)
+            .current_dir(agent_cwd_clone)
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
 
@@ -127,7 +130,7 @@ impl AgentManager {
                     .arg("amos_device_agent")
                     .env("AMOS_API_URL", api_url)
                     .env("AMOS_AGENT_ID", agent_id)
-                    .current_dir(agent_cwd.clone())
+                    .current_dir(agent_cwd)
                     .stdout(Stdio::from(
                         std::fs::File::create(&stdout_file)
                             .map_err(|e| AgentError::SpawnFailed(format!("stdout: {}", e)))?,

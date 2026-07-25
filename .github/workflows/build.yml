@@ -3,8 +3,6 @@ name: Build AMOS Companion
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -43,23 +41,32 @@ jobs:
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
 
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: amos-companion-macos-${{ matrix.suffix }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-          retention-days: 30
+      - name: Find DMG
+        id: find-dmg
+        run: |
+          DMG=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -1)
+          echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
 
-  # Linux (Ubuntu)
+      - name: Upload to R2
+        run: |
+          # Get version from tag or use default
+          VERSION=${GITHUB_REF_NAME#v}
+          [ -z "$VERSION" ] && VERSION="0.2.0"
+          
+          # Upload to R2 using AWS CLI
+          ARCH=${{ matrix.suffix }}
+          KEY="companion/AMOS Companion_${VERSION}_${ARCH}.dmg"
+          
+          aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://amos-releases/$KEY" \
+            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
+            --region auto \
+            --acl public-read
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+
+  # Linux
   build-linux:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suffix: amd64
-            target: x86_64-unknown-linux-gnu
-          - suffix: arm64
-            target: aarch64-unknown-linux-gnu
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -71,8 +78,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Install Linux dependencies
         run: |
@@ -83,14 +88,26 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        run: npm run tauri build -- --target ${{ matrix.target }}
+        run: npm run tauri build
 
-      - name: Upload AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: amos-companion-linux-${{ matrix.suffix }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-          retention-days: 30
+      - name: Find AppImage
+        id: find-appimage
+        run: |
+          APPIMAGE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage" | head -1)
+          echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
+
+      - name: Upload to R2
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          [ -z "$VERSION" ] && VERSION="0.2.0"
+          
+          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://amos-releases/companion/AMOS Companion_${VERSION}_amd64.AppImage" \
+            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
+            --region auto \
+            --acl public-read
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
 
   # Windows
   build-windows:
@@ -104,7 +121,7 @@ jobs:
           node-version: "20"
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
         run: npm ci
@@ -112,9 +129,23 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Upload MSI
-        uses: actions/upload-artifact@v4
-        with:
-          name: amos-companion-windows
-          path: src-tauri/target/release/bundle/msi/*.msi
-          retention-days: 30
+      - name: Find MSI
+        id: find-msi
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path src-tauri/target/release/bundle/msi -Filter "*.msi" | Select-Object -First 1
+          echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload to R2
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace "^v", ""
+          if (-not $version) { $version = "0.2.0" }
+          
+          aws s3 cp "${{ steps.find-msi.outputs.msi_path }}" "s3://amos-releases/companion/AMOS Companion_${version}_x64-setup.exe" \
+            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
+            --region auto \
+            --acl public-read
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}

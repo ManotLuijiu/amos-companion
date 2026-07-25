@@ -14,7 +14,7 @@ use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
 use workspace_manager as wm;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tracing::{error, info};
 
