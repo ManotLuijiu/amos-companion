@@ -1,0 +1,56 @@
+name: Build AMOS Companion
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14
+            arch: aarch64
+            suffix: aarch64
+          - platform: macos-14
+            arch: x86_64
+            suffix: x86_64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust targets
+        if: matrix.arch == 'x86_64'
+        run: |
+          rustup target add x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --target ${{ matrix.arch }}-apple-darwin
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+
+      - name: Find DMG
+        id: find-dmg
+        run: |
+          FIND=$(find src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          echo "dmg_path=$FIND" >> $GITHUB_OUTPUT
+          echo "Found: $FIND"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: amos-companion-${{ matrix.suffix }}
+          path: ${{ steps.find-dmg.outputs.dmg_path }}
+          retention-days: 30

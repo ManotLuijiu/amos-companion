@@ -1,0 +1,943 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { TrayIcon } from "@tauri-apps/api/tray";
+import { Menu, MenuItem } from "@tauri-apps/api/menu";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AgentStatus {
+	agent_online: boolean;
+	agent_running: boolean;
+	connected_devices: string[];
+	platform: string;
+	companion_version: string;
+	adb_version: string;
+	api_url: string;
+	agent_pid: number | null;
+	error_message: string | null;
+}
+
+interface DeviceInfo {
+	serial: string;
+	model: string;
+	status: string;
+	resolution: string | null;
+	battery: number | null;
+}
+
+interface DeviceList {
+	devices: DeviceInfo[];
+}
+
+type StatusDisplay = "loading" | "setup" | "stopped" | "running" | "error";
+
+interface LogEntry {
+	timestamp: Date;
+	level: "info" | "warn" | "error" | "debug";
+	message: string;
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
+
+let state: AgentStatus = {
+	agent_online: false,
+	agent_running: false,
+	connected_devices: [],
+	platform: "",
+	companion_version: "0.1.0",
+	adb_version: "",
+	api_url: "",
+	agent_pid: null,
+	error_message: null,
+};
+
+let display: StatusDisplay = "loading";
+let selectedDevice: DeviceInfo | null = null;
+let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
+let scrcpyEnabled = false;
+let scrcpyAvailable = false;
+let deviceAgentInstalled = false;
+let logEntries: LogEntry[] = [];
+const maxLogs = 500;
+
+// ─── Logging ─────────────────────────────────────────────────────────────────
+
+function addLog(level: LogEntry["level"], message: string): void {
+	const entry: LogEntry = {
+		timestamp: new Date(),
+		level,
+		message,
+	};
+	logEntries.push(entry);
+	if (logEntries.length > maxLogs) {
+		logEntries = logEntries.slice(-maxLogs);
+	}
+	appendLogToUI(entry);
+}
+
+function appendLogToUI(entry: LogEntry): void {
+	const logContainer = document.getElementById("log-content");
+	if (!logContainer) return;
+
+	const time = entry.timestamp.toLocaleTimeString("en-US", {
+		hour12: false,
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+
+	const line = document.createElement("div");
+	line.className = `log-line log-${entry.level}`;
+
+	const timeSpan = document.createElement("span");
+	timeSpan.className = "log-time";
+	timeSpan.textContent = time;
+
+	const levelSpan = document.createElement("span");
+	levelSpan.className = `log-level log-level-${entry.level}`;
+	levelSpan.textContent = entry.level.toUpperCase();
+
+	const msgSpan = document.createElement("span");
+	msgSpan.className = "log-message";
+	msgSpan.textContent = entry.message;
+
+	line.appendChild(timeSpan);
+	line.appendChild(levelSpan);
+	line.appendChild(msgSpan);
+	logContainer.appendChild(line);
+
+	// Auto-scroll to bottom
+	logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function clearLogs(): void {
+	logEntries = [];
+	const logContainer = document.getElementById("log-content");
+	if (logContainer) {
+		logContainer.innerHTML = "";
+	}
+}
+
+// ─── Tray Setup ───────────────────────────────────────────────────────────────
+
+async function setupTray(): Promise<void> {
+	try {
+		const showItem = await MenuItem.new({
+			id: "show",
+			text: "Show AMOS Companion",
+			action: async () => {
+				const win = getCurrentWindow();
+				await win.show();
+				await win.setFocus();
+			},
+		});
+		const openWebItem = await MenuItem.new({
+			id: "open_web",
+			text: "Open AMOS Web UI",
+			action: async () => {
+				await invoke("open_web_ui");
+			},
+		});
+		const quitItem = await MenuItem.new({
+			id: "quit",
+			text: "Quit",
+			action: async () => {
+				const win = getCurrentWindow();
+				await win.close();
+			},
+		});
+
+		const menu = await Menu.new({
+			items: [showItem, openWebItem, quitItem],
+		});
+
+		await TrayIcon.new({
+			id: "main-tray",
+			tooltip: "AMOS Companion",
+			menu,
+			showMenuOnLeftClick: false,
+		});
+	} catch (err) {
+		addLog("error", `Failed to setup tray: ${err}`);
+	}
+}
+
+// ─── Build UI ─────────────────────────────────────────────────────────────────
+
+function build(): HTMLElement {
+	const root = document.createElement("div");
+	root.className = "app-container";
+
+	root.append(buildHeader());
+	root.append(buildMainContent());
+	root.append(buildFooter());
+
+	return root;
+}
+
+function buildHeader(): HTMLElement {
+	const header = document.createElement("header");
+	header.className = "app-header";
+
+	// Logo & Title
+	const brand = document.createElement("div");
+	brand.className = "header-brand";
+
+	const logo = document.createElement("img");
+	logo.className = "header-logo";
+	logo.src = "amos-logo.png";
+	logo.alt = "AMOS Logo";
+
+	const titleGroup = document.createElement("div");
+	titleGroup.className = "header-title-group";
+
+	const title = document.createElement("h1");
+	title.className = "header-title";
+	title.textContent = "AMOS Companion";
+
+	const version = document.createElement("span");
+	version.className = "header-version";
+	version.textContent = `v${state.companion_version}`;
+
+	titleGroup.appendChild(title);
+	titleGroup.appendChild(version);
+	brand.appendChild(logo);
+	brand.appendChild(titleGroup);
+
+	// Status Badge
+	const statusBadge = document.createElement("div");
+	statusBadge.className = "header-status";
+	statusBadge.id = "status-badge";
+	statusBadge.textContent = "Loading...";
+
+	header.appendChild(brand);
+	header.appendChild(statusBadge);
+
+	return header;
+}
+
+function buildMainContent(): HTMLElement {
+	const main = document.createElement("main");
+	main.className = "app-main";
+
+	// Left Panel - Controls
+	const leftPanel = document.createElement("div");
+	leftPanel.className = "panel panel-left";
+
+	// Agent Status Card
+	const agentCard = document.createElement("div");
+	agentCard.className = "card";
+	agentCard.id = "agent-card";
+
+	const agentHeader = document.createElement("div");
+	agentHeader.className = "card-header";
+	agentHeader.innerHTML = `
+		<div class="card-title">
+			<span class="card-icon">🎯</span>
+			Agent Status
+		</div>
+	`;
+	agentCard.appendChild(agentHeader);
+
+	const agentBody = document.createElement("div");
+	agentBody.className = "card-body";
+	agentBody.innerHTML = `
+		<div class="status-display">
+			<div class="status-indicator-large" id="status-indicator-large"></div>
+			<div class="status-info">
+				<div class="status-label-large" id="status-label-large">Loading...</div>
+				<div class="status-detail" id="status-detail-text">Connecting...</div>
+			</div>
+		</div>
+		<div class="status-meta" id="status-meta">
+			<div class="meta-item">
+				<span class="meta-label">PID</span>
+				<span class="meta-value" id="meta-pid">—</span>
+			</div>
+			<div class="meta-item">
+				<span class="meta-label">Platform</span>
+				<span class="meta-value" id="meta-platform">—</span>
+			</div>
+			<div class="meta-item">
+				<span class="meta-label">Devices</span>
+				<span class="meta-value" id="meta-devices">0</span>
+			</div>
+		</div>
+	`;
+	agentCard.appendChild(agentBody);
+
+	// Action Buttons
+	const actions = document.createElement("div");
+	actions.className = "card-actions";
+	actions.innerHTML = `
+		<button class="btn btn-primary btn-large" id="btn-start">
+			<span class="btn-icon">▶</span>
+			Start Agent
+		</button>
+		<button class="btn btn-danger btn-large" id="btn-stop" disabled>
+			<span class="btn-icon">■</span>
+			Stop Agent
+		</button>
+	`;
+	agentCard.appendChild(actions);
+
+	leftPanel.appendChild(agentCard);
+
+	// Device List Card
+	const deviceCard = document.createElement("div");
+	deviceCard.className = "card";
+
+	const deviceHeader = document.createElement("div");
+	deviceHeader.className = "card-header";
+	deviceHeader.innerHTML = `
+		<div class="card-title">
+			<span class="card-icon">📱</span>
+			Connected Devices
+		</div>
+		<span class="badge badge-info" id="device-count">0</span>
+	`;
+	deviceCard.appendChild(deviceHeader);
+
+	const deviceList = document.createElement("div");
+	deviceList.className = "device-list-container";
+	deviceList.id = "device-list-container";
+	deviceList.innerHTML = `
+		<ul class="device-list" id="device-list">
+			<li class="device-empty" id="device-empty">
+				<span class="empty-icon">📲</span>
+				<span>No devices connected</span>
+			</li>
+		</ul>
+	`;
+	deviceCard.appendChild(deviceList);
+
+	leftPanel.appendChild(deviceCard);
+
+	// Settings Card
+	const settingsCard = document.createElement("div");
+	settingsCard.className = "card";
+
+	const settingsHeader = document.createElement("div");
+	settingsHeader.className = "card-header collapsible";
+	settingsHeader.innerHTML = `
+		<div class="card-title">
+			<span class="card-icon">⚙️</span>
+			Settings
+		</div>
+		<span class="collapse-icon">▼</span>
+	`;
+	settingsHeader.onclick = () => {
+		settingsCard.classList.toggle("collapsed");
+	};
+	settingsCard.appendChild(settingsHeader);
+
+	const settingsBody = document.createElement("div");
+	settingsBody.className = "card-body";
+	settingsBody.innerHTML = `
+		<div class="setting-item">
+			<label class="setting-label">AMOS API URL</label>
+			<input type="url" class="setting-input" id="api-url" placeholder="https://api.amos.moo-vpn.online" />
+		</div>
+		<div class="setting-item">
+			<label class="setting-label">
+				High Performance Mode
+				<span class="setting-hint" id="scrcpy-status"></span>
+			</label>
+			<div class="toggle-container">
+				<input type="checkbox" id="toggle-scrcpy" class="toggle-input" />
+				<label for="toggle-scrcpy" class="toggle-label"></label>
+				<span class="toggle-text" id="toggle-scrcpy-text">Requires scrcpy (brew install scrcpy)</span>
+			</div>
+		</div>
+		<button class="btn btn-secondary btn-full" id="btn-open-web">
+			🌐 Open AMOS Web UI
+		</button>
+	`;
+	settingsCard.appendChild(settingsBody);
+
+	leftPanel.appendChild(settingsCard);
+
+	// Device Control Panel (hidden by default)
+	const deviceControlCard = document.createElement("div");
+	deviceControlCard.className = "card";
+	deviceControlCard.id = "device-control-card";
+	deviceControlCard.style.display = "none";
+
+	const controlHeader = document.createElement("div");
+	controlHeader.className = "card-header";
+	controlHeader.innerHTML = `
+		<div class="card-title">
+			<span class="card-icon">📱</span>
+			<span id="control-device-name">Device Control</span>
+		</div>
+		<button class="btn btn-small btn-ghost" id="btn-close-control">✕</button>
+	`;
+	deviceControlCard.appendChild(controlHeader);
+
+	const controlBody = document.createElement("div");
+	controlBody.className = "card-body";
+	controlBody.innerHTML = `
+		<div class="screen-viewer" id="screen-viewer">
+			<img id="device-screen" alt="Device Screen" />
+			<div class="screen-loading" id="screen-loading">Loading...</div>
+		</div>
+		<div class="control-buttons">
+			<button class="btn btn-secondary" id="btn-tap">⬅ Back</button>
+			<button class="btn btn-secondary" id="btn-home">🏠 Home</button>
+			<button class="btn btn-secondary" id="btn-enter">↵ Enter</button>
+		</div>
+		<div class="device-info-bar" id="device-info-bar"></div>
+	`;
+	deviceControlCard.appendChild(controlBody);
+
+	leftPanel.appendChild(deviceControlCard);
+
+	// Right Panel - Logs
+	const rightPanel = document.createElement("div");
+	rightPanel.className = "panel panel-right";
+
+	const logCard = document.createElement("div");
+	logCard.className = "card card-logs";
+
+	const logHeader = document.createElement("div");
+	logHeader.className = "card-header";
+	logHeader.innerHTML = `
+		<div class="card-title">
+			<span class="card-icon">📋</span>
+			Activity Logs
+		</div>
+		<div class="log-controls">
+			<button class="btn btn-small btn-ghost" id="btn-clear-logs" title="Clear logs">🗑️</button>
+		</div>
+	`;
+	logCard.appendChild(logHeader);
+
+	const logBody = document.createElement("div");
+	logBody.className = "log-container";
+	logBody.id = "log-container";
+	logBody.innerHTML = `<div class="log-content" id="log-content"></div>`;
+	logCard.appendChild(logBody);
+
+	rightPanel.appendChild(logCard);
+
+	main.appendChild(leftPanel);
+	main.appendChild(rightPanel);
+
+	return main;
+}
+
+function buildFooter(): HTMLElement {
+	const footer = document.createElement("footer");
+	footer.className = "app-footer";
+	footer.innerHTML = `
+		<span>AMOS Device Management</span>
+		<span class="footer-sep">•</span>
+		<span>${new Date().getFullYear()}</span>
+	`;
+	return footer;
+}
+
+// ─── Event Handlers ────────────────────────────────────────────────────────────
+
+async function handleStart(): Promise<void> {
+	const btnStart = document.getElementById("btn-start") as HTMLButtonElement;
+
+	if (btnStart) {
+		btnStart.disabled = true;
+		btnStart.textContent = "Starting...";
+	}
+
+	addLog("info", "Attempting to start agent...");
+
+	try {
+		await invoke("start_agent");
+		addLog("info", "Agent start command sent successfully");
+
+		// Wait for process to actually start
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+		await refreshStatus();
+
+		if (state.agent_running) {
+			addLog("info", `Agent started with PID: ${state.agent_pid}`);
+		}
+	} catch (err) {
+		addLog("error", `Failed to start agent: ${err}`);
+		if (btnStart) {
+			btnStart.disabled = false;
+			btnStart.textContent = "Start Agent";
+		}
+	}
+}
+
+async function handleStop(): Promise<void> {
+	const btnStop = document.getElementById("btn-stop") as HTMLButtonElement;
+
+	if (btnStop) {
+		btnStop.disabled = true;
+		btnStop.textContent = "Stopping...";
+	}
+
+	addLog("info", "Attempting to stop agent...");
+
+	try {
+		await invoke("stop_agent");
+		addLog("info", "Agent stop command sent successfully");
+
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		await refreshStatus();
+
+		if (!state.agent_running) {
+			addLog("info", "Agent stopped successfully");
+		}
+	} catch (err) {
+		addLog("error", `Failed to stop agent: ${err}`);
+	}
+
+	if (btnStop) {
+		btnStop.disabled = true;
+		btnStop.textContent = "Stop Agent";
+	}
+}
+
+async function handleOpenWebUI(): Promise<void> {
+	addLog("info", "Opening AMOS Web UI...");
+	await invoke("open_web_ui");
+}
+
+async function handleDeviceClick(device: DeviceInfo): Promise<void> {
+	addLog("info", `Opening control for: ${device.model} (${device.serial})`);
+	selectedDevice = device;
+
+	// Show device control panel
+	const controlCard = document.getElementById("device-control-card");
+	const deviceName = document.getElementById("control-device-name");
+	if (controlCard) controlCard.style.display = "block";
+	if (deviceName) deviceName.textContent = device.model;
+
+	// Start screenshot refresh
+	await refreshScreenshot();
+	if (screenshotRefreshInterval) clearInterval(screenshotRefreshInterval);
+	screenshotRefreshInterval = setInterval(refreshScreenshot, 1000);
+
+	// Get device info
+	try {
+		const info = await invoke<DeviceInfo>("get_device_info", {
+			serial: device.serial,
+		});
+		const infoBar = document.getElementById("device-info-bar");
+		if (infoBar)
+			infoBar.textContent = `${info.resolution || "Unknown"} | Battery: ${info.battery ?? "N/A"}%`;
+	} catch (err) {
+		addLog("warn", `Could not get device info: ${err}`);
+	}
+}
+
+function closeDevicePanel(): void {
+	selectedDevice = null;
+	const controlCard = document.getElementById("device-control-card");
+	if (controlCard) controlCard.style.display = "none";
+	if (screenshotRefreshInterval) {
+		clearInterval(screenshotRefreshInterval);
+		screenshotRefreshInterval = null;
+	}
+}
+
+async function refreshScreenshot(): Promise<void> {
+	if (!selectedDevice) return;
+	const loading = document.getElementById("screen-loading");
+	const screenImg = document.getElementById(
+		"device-screen",
+	) as HTMLImageElement;
+
+	if (loading) loading.style.display = "flex";
+
+	try {
+		const base64 = await invoke<string>("capture_screenshot", {
+			serial: selectedDevice.serial,
+		});
+		if (screenImg && base64) {
+			screenImg.src = `data:image/png;base64,${base64}`;
+		}
+	} catch (err) {
+		addLog("debug", `Screenshot failed: ${err}`);
+	}
+
+	if (loading) loading.style.display = "none";
+}
+
+async function handleScreenTap(event: MouseEvent): Promise<void> {
+	if (!selectedDevice) return;
+	const screenImg = document.getElementById(
+		"device-screen",
+	) as HTMLImageElement;
+	if (!screenImg || !screenImg.naturalWidth) return;
+
+	const rect = screenImg.getBoundingClientRect();
+	const scaleX = screenImg.naturalWidth / rect.width;
+	const scaleY = screenImg.naturalHeight / rect.height;
+	const x = Math.round((event.clientX - rect.left) * scaleX);
+	const y = Math.round((event.clientY - rect.top) * scaleY);
+
+	try {
+		await invoke("device_tap", { serial: selectedDevice.serial, x, y });
+		addLog("debug", `Tap: ${x},${y}`);
+	} catch (err) {
+		addLog("error", `Tap failed: ${err}`);
+	}
+}
+
+async function handleControlBack(): Promise<void> {
+	if (!selectedDevice) return;
+	try {
+		await invoke("device_back", { serial: selectedDevice.serial });
+		addLog("debug", "Back button sent");
+	} catch (err) {
+		addLog("error", `Back failed: ${err}`);
+	}
+}
+
+async function handleControlHome(): Promise<void> {
+	if (!selectedDevice) return;
+	try {
+		await invoke("device_home", { serial: selectedDevice.serial });
+		addLog("debug", "Home button sent");
+	} catch (err) {
+		addLog("error", `Home failed: ${err}`);
+	}
+}
+
+async function handleControlEnter(): Promise<void> {
+	if (!selectedDevice) return;
+	try {
+		await invoke("device_enter", { serial: selectedDevice.serial });
+		addLog("debug", "Enter button sent");
+	} catch (err) {
+		addLog("error", `Enter failed: ${err}`);
+	}
+}
+
+async function handleScrcpyToggle(): Promise<void> {
+	const toggle = document.getElementById("toggle-scrcpy") as HTMLInputElement;
+	if (!toggle || !selectedDevice) return;
+
+	if (toggle.checked) {
+		if (!scrcpyAvailable) {
+			addLog("warn", "scrcpy not found. Install with: brew install scrcpy");
+			toggle.checked = false;
+			return;
+		}
+		try {
+			await invoke("start_scrcpy", { serial: selectedDevice.serial });
+			scrcpyEnabled = true;
+			addLog("info", `scrcpy started - check new window!`);
+		} catch (err) {
+			addLog("error", `Failed to start scrcpy: ${err}`);
+			toggle.checked = false;
+		}
+	} else {
+		try {
+			await invoke("stop_scrcpy");
+			scrcpyEnabled = false;
+			addLog("info", "scrcpy stopped");
+		} catch (err) {
+			addLog("error", `Failed to stop scrcpy: ${err}`);
+		}
+	}
+}
+
+async function handleSaveConfig(): Promise<void> {
+	const apiUrlInput = document.getElementById("api-url") as HTMLInputElement;
+	if (apiUrlInput) {
+		const apiUrl = apiUrlInput.value;
+		try {
+			await invoke("save_config", { apiUrl });
+			addLog("info", `API URL saved: ${apiUrl}`);
+		} catch (err) {
+			addLog("error", `Failed to save config: ${err}`);
+		}
+	}
+}
+
+// ─── Status Refresh ──────────────────────────────────────────────────────────
+
+async function refreshStatus(): Promise<void> {
+	try {
+		const status = await invoke<AgentStatus>("get_status");
+		state = status;
+		display = computeDisplay();
+		refreshUI();
+
+		// Refresh device list
+		try {
+			const deviceList = await invoke<DeviceList>("get_devices");
+			refreshDeviceList(deviceList.devices);
+		} catch (err) {
+			addLog("debug", `Could not get device list: ${err}`);
+		}
+	} catch (err) {
+		display = "setup";
+		addLog("warn", "Could not connect to agent");
+		refreshUI();
+	}
+}
+
+function computeDisplay(): StatusDisplay {
+	if (!state.platform) return "loading";
+	if (state.error_message) return "error";
+	if (state.agent_running) return "running";
+	return "stopped";
+}
+
+function refreshUI(): void {
+	// Status badge
+	const statusBadge = document.getElementById("status-badge");
+	if (statusBadge) {
+		statusBadge.className = `header-status status-${display}`;
+		statusBadge.textContent = getStatusLabel();
+	}
+
+	// Large status indicator
+	const indicator = document.getElementById("status-indicator-large");
+	if (indicator) {
+		indicator.className = `status-indicator-large status-${display}`;
+	}
+
+	// Status label
+	const label = document.getElementById("status-label-large");
+	if (label) {
+		label.textContent = getStatusLabel();
+	}
+
+	// Status detail
+	const detail = document.getElementById("status-detail-text");
+	if (detail) {
+		detail.textContent = getStatusDetail();
+	}
+
+	// Meta info
+	const metaPid = document.getElementById("meta-pid");
+	const metaPlatform = document.getElementById("meta-platform");
+	const metaDevices = document.getElementById("meta-devices");
+
+	if (metaPid) metaPid.textContent = state.agent_pid?.toString() ?? "—";
+	if (metaPlatform) metaPlatform.textContent = state.platform || "—";
+	if (metaDevices)
+		metaDevices.textContent = state.connected_devices.length.toString();
+
+	// Buttons
+	const btnStart = document.getElementById("btn-start") as HTMLButtonElement;
+	const btnStop = document.getElementById("btn-stop") as HTMLButtonElement;
+
+	if (btnStart && btnStop) {
+		if (display === "running") {
+			btnStart.disabled = true;
+			btnStart.innerHTML = '<span class="btn-icon">✓</span> Running';
+			btnStop.disabled = false;
+		} else {
+			btnStart.disabled = false;
+			btnStart.innerHTML = '<span class="btn-icon">▶</span> Start Agent';
+			btnStop.disabled = true;
+		}
+	}
+
+	// API URL
+	const apiUrlInput = document.getElementById("api-url") as HTMLInputElement;
+	if (apiUrlInput && state.api_url) {
+		apiUrlInput.value = state.api_url;
+	}
+
+	// Error message
+	if (display === "error" && state.error_message) {
+		addLog("error", state.error_message);
+	}
+}
+
+function getStatusLabel(): string {
+	switch (display) {
+		case "loading":
+			return "Connecting...";
+		case "setup":
+			return "Setup Required";
+		case "stopped":
+			return "Stopped";
+		case "running":
+			return "Running";
+		case "error":
+			return "Error";
+		default:
+			return "Unknown";
+	}
+}
+
+function getStatusDetail(): string {
+	switch (display) {
+		case "loading":
+			return "Initializing AMOS Companion...";
+		case "setup":
+			return "Configure API URL in settings";
+		case "stopped":
+			return "Click Start to begin";
+		case "running":
+			return state.agent_pid ? `PID: ${state.agent_pid}` : "Agent active";
+		case "error":
+			return state.error_message ?? "An error occurred";
+		default:
+			return "";
+	}
+}
+
+function refreshDeviceList(devices: DeviceInfo[]): void {
+	const list = document.getElementById("device-list");
+	const empty = document.getElementById("device-empty");
+	const count = document.getElementById("device-count");
+
+	if (count) count.textContent = devices.length.toString();
+
+	if (!list) return;
+
+	// Clear existing items except empty state
+	const items = list.querySelectorAll(".device-item");
+	items.forEach((item) => item.remove());
+
+	if (devices.length === 0) {
+		if (empty) empty.style.display = "flex";
+	} else {
+		if (empty) empty.style.display = "none";
+
+		devices.forEach((device) => {
+			const li = document.createElement("li");
+			li.className = "device-item";
+			li.innerHTML = `
+				<span class="device-icon">📱</span>
+				<div class="device-info">
+					<span class="device-name">${device.model}</span>
+					<span class="device-serial">${device.serial}</span>
+				</div>
+				<span class="device-status status-${device.status}">${device.status}</span>
+			`;
+			li.onclick = () => handleDeviceClick(device);
+			list.appendChild(li);
+		});
+	}
+}
+
+// ─── Setup Event Listeners ────────────────────────────────────────────────────
+
+function setupEventListeners(): void {
+	// Start button
+	const btnStart = document.getElementById("btn-start");
+	btnStart?.addEventListener("click", handleStart);
+
+	// Stop button
+	const btnStop = document.getElementById("btn-stop");
+	btnStop?.addEventListener("click", handleStop);
+
+	// Open Web UI button
+	const btnOpenWeb = document.getElementById("btn-open-web");
+	btnOpenWeb?.addEventListener("click", handleOpenWebUI);
+
+	// API URL input - save on blur
+	const apiUrlInput = document.getElementById("api-url") as HTMLInputElement;
+	apiUrlInput?.addEventListener("blur", handleSaveConfig);
+	apiUrlInput?.addEventListener("keydown", (e) => {
+		if (e.key === "Enter") {
+			(apiUrlInput as HTMLInputElement).blur();
+		}
+	});
+
+	// Clear logs button
+	const btnClearLogs = document.getElementById("btn-clear-logs");
+	btnClearLogs?.addEventListener("click", () => {
+		clearLogs();
+		addLog("info", "Logs cleared");
+	});
+
+	// Device control buttons
+	const btnCloseControl = document.getElementById("btn-close-control");
+	btnCloseControl?.addEventListener("click", closeDevicePanel);
+
+	const btnTap = document.getElementById("btn-tap");
+	btnTap?.addEventListener("click", handleControlBack);
+
+	const btnHome = document.getElementById("btn-home");
+	btnHome?.addEventListener("click", handleControlHome);
+
+	const btnEnter = document.getElementById("btn-enter");
+	btnEnter?.addEventListener("click", handleControlEnter);
+
+	// Screen tap handler
+	const screenImg = document.getElementById("device-screen");
+	screenImg?.addEventListener("click", (e: Event) =>
+		handleScreenTap(e as MouseEvent),
+	);
+
+	// scrcpy toggle
+	const toggleScrcpy = document.getElementById(
+		"toggle-scrcpy",
+	) as HTMLInputElement;
+	toggleScrcpy?.addEventListener("change", handleScrcpyToggle);
+}
+
+// ─── Entry ───────────────────────────────────────────────────────────────────
+
+export async function init(): Promise<void> {
+	addLog("info", "AMOS Companion initializing...");
+
+	// Set up system tray
+	await setupTray();
+	addLog("info", "System tray configured");
+
+	// Build and mount UI
+	const app = document.getElementById("app")!;
+	app.appendChild(build());
+	setupEventListeners();
+
+	// Listen for status updates from Rust backend
+	await listen<AgentStatus>("status-update", (event) => {
+		state = event.payload;
+		addLog("debug", `Status update received: running=${state.agent_running}`);
+		refreshUI();
+	});
+
+	// Initial status fetch
+	addLog("info", "Fetching initial status...");
+	await refreshStatus();
+	addLog("info", "Status refresh complete");
+
+	// Check if scrcpy is available
+	try {
+		scrcpyAvailable = await invoke<boolean>("is_scrcpy_available_cmd");
+		const statusEl = document.getElementById("scrcpy-status");
+		if (statusEl) {
+			statusEl.textContent = scrcpyAvailable
+				? "✓ Available"
+				: "✗ Not installed";
+			statusEl.style.color = scrcpyAvailable
+				? "var(--accent-green)"
+				: "var(--accent-red)";
+		}
+		addLog("info", `scrcpy ${scrcpyAvailable ? "available" : "not found"}`);
+	} catch {
+		addLog("warn", "Could not check scrcpy availability");
+	}
+
+	// Check device agent installation status
+	try {
+		const agentStatus = await invoke<{
+			installed: boolean;
+			path: string;
+			os: string;
+		}>("get_device_agent_status");
+		deviceAgentInstalled = agentStatus.installed;
+		addLog(
+			"info",
+			`Device agent ${agentStatus.installed ? "installed" : "not found"} (${agentStatus.os})`,
+		);
+	} catch {
+		addLog("warn", "Could not check device agent status");
+	}
+
+	// Auto-refresh status every 5 seconds
+	setInterval(() => refreshStatus(), 5000);
+}
