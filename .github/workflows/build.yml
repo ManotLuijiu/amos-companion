@@ -128,13 +128,14 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri build
 
-      - name: Find MSI
-        id: find-msi
+      - name: Find EXE Installer
+        id: find-exe
         shell: pwsh
         run: |
-          $msi = Get-ChildItem -Path src-tauri/target -Filter "*.msi" -Recurse | Where-Object { $_.FullName -match "bundle" } | Select-Object -First 1
-          echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
-          echo "Found MSI: $($msi.FullName)"
+          # Find NSIS .exe installer
+          $exe = Get-ChildItem -Path src-tauri/target -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "bundle" -and $_.FullName -notmatch "WebView2" } | Select-Object -First 1
+          echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          echo "Found EXE: $($exe.FullName)"
 
       - name: Install AWS CLI
         run: pip install awscli
@@ -144,7 +145,7 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME -replace "^v", ""
           if (-not $version) { $version = "0.2.0" }
-          aws s3 cp "${{ steps.find-msi.outputs.msi_path }}" "s3://amos-releases/companion/AMOS_Companion_${version}_x64-setup.exe" `
+          aws s3 cp "${{ steps.find-exe.outputs.exe_path }}" "s3://amos-releases/companion/AMOS_Companion_${version}_x64-setup.exe" `
             --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" `
             --region auto `
             --acl public-read
