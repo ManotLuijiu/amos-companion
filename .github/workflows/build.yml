@@ -91,6 +91,7 @@ jobs:
             ${{ steps.find-dmg.outputs.dmg_path }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          token: ${{ secrets.RELEASE_TOKEN }}
 
   # Build for Linux (AppImage)
   build-linux:
@@ -151,6 +152,7 @@ jobs:
             ${{ steps.find-appimage.outputs.appimage_path }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          token: ${{ secrets.RELEASE_TOKEN }}
 
   # Build for Windows (NSIS installer)
   build-windows:
@@ -205,3 +207,4 @@ jobs:
             ${{ steps.find-exe.outputs.exe_path }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          token: ${{ secrets.RELEASE_TOKEN }}
