@@ -58,8 +58,8 @@ jobs:
 
       - name: Install AWS CLI
         run: |
-          curl -sL "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
-          sudo installer -pkg AWSCLIV2.pkg -target / -AllowRebootAcceptPartial -TrustPairedPackages
+          curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+          sudo installer -pkg AWSCLIV2.pkg -target /
           rm -f AWSCLIV2.pkg
 
       - name: Upload to R2
