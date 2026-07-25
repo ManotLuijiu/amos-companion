@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  R2_ENDPOINT: "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com"
+  R2_BUCKET: "amos-releases"
+
 jobs:
   build-macos:
     strategy:
@@ -15,10 +19,12 @@ jobs:
             arch: aarch64
             suffix: aarch64
             target: aarch64-apple-darwin
+            ext: dmg
           - platform: macos-14
             arch: x86_64
             suffix: x86_64
             target: x86_64-apple-darwin
+            ext: dmg
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +51,6 @@ jobs:
         run: |
           DMG=$(find src-tauri/target -name "*.dmg" -type f | grep bundle | head -1)
           echo "dmg_path=$DMG" >> $GITHUB_OUTPUT
-          echo "Found DMG: $DMG"
 
       - name: Install AWS CLI
         run: pip install awscli
@@ -55,10 +60,21 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           [ -z "$VERSION" ] && VERSION="0.2.0"
           ARCH=${{ matrix.suffix }}
-          aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://amos-releases/companion/AMOS_Companion_${VERSION}_${ARCH}.dmg" \
-            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
+          aws s3 cp "${{ steps.find-dmg.outputs.dmg_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_${ARCH}.dmg" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
+
+          # Cleanup: Keep only last 3 DMG files
+          echo "=== Cleaning up old builds (keeping last 3) ==="
+          aws s3 ls "s3://${{ env.R2_BUCKET }}/companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto | grep "\.dmg$" | awk '{print $4}' | while read file; do
+            # Get all DMG files sorted by date, keep last 3
+            aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`.dmg`)]' --output json | \
+              jq -r '.[] | "\(.Key) \(.LastModified)"' | sort -k2 -r | tail -n +4 | awk '{print $1}' | while read oldfile; do
+              echo "Deleting: $oldfile"
+              aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
+            done
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
@@ -92,19 +108,26 @@ jobs:
         run: |
           APPIMAGE=$(find src-tauri/target -name "*.AppImage" -type f | grep bundle | head -1)
           echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
-          echo "Found AppImage: $APPIMAGE"
 
-      - name: Install AWS CLI
-        run: pip install awscli
+      - name: Install AWS CLI + jq
+        run: pip install awscli && pip install jq
 
       - name: Upload to R2
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           [ -z "$VERSION" ] && VERSION="0.2.0"
-          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://amos-releases/companion/AMOS_Companion_${VERSION}_amd64.AppImage" \
-            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" \
+          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_amd64.AppImage" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
+
+          # Cleanup: Keep only last 3 AppImage files
+          echo "=== Cleaning up old AppImage builds (keeping last 3) ==="
+          aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`AppImage`)]' --output json | \
+            jq -r '.[] | "\(.Key) \(.LastModified)"' | sort -k2 -r | tail -n +4 | awk '{print $1}' | while read oldfile; do
+            echo "Deleting: $oldfile"
+            aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
+          done
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
@@ -132,10 +155,8 @@ jobs:
         id: find-exe
         shell: pwsh
         run: |
-          # Find NSIS .exe installer
           $exe = Get-ChildItem -Path src-tauri/target -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "bundle" -and $_.FullName -notmatch "WebView2" } | Select-Object -First 1
           echo "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-          echo "Found EXE: $($exe.FullName)"
 
       - name: Install AWS CLI
         run: pip install awscli
@@ -145,10 +166,19 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME -replace "^v", ""
           if (-not $version) { $version = "0.2.0" }
-          aws s3 cp "${{ steps.find-exe.outputs.exe_path }}" "s3://amos-releases/companion/AMOS_Companion_${version}_x64-setup.exe" `
-            --endpoint-url "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com" `
+          aws s3 cp "${{ steps.find-exe.outputs.exe_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${version}_x64-setup.exe" `
+            --endpoint-url "${{ env.R2_ENDPOINT }}" `
             --region auto `
             --acl public-read
+
+          # Cleanup: Keep only last 3 EXE files
+          echo "=== Cleaning up old EXE builds (keeping last 3) ==="
+          $files = aws s3api list-object-versions --bucket ${{ env.R2_BUCKET }} --prefix "companion/" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto --query 'ObjectVersions[?contains(Key,`x64-setup.exe`)]' --output json | jq -r '.[] | "\(.Key) \(.LastModified)"'
+          $files | Sort-Object { [DateTime]::Parse($_.Split()[1]) } -Descending | Select-Object -Skip 3 | ForEach-Object { 
+            $oldfile = $_.Split()[0]
+            echo "Deleting: $oldfile"
+            aws s3 rm "s3://${{ env.R2_BUCKET }}/$oldfile" --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto
+          }
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
