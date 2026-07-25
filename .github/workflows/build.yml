@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # macOS (Intel and Apple Silicon)
+  build-macos:
     strategy:
       fail-fast: false
       matrix:
@@ -16,9 +17,11 @@ jobs:
           - platform: macos-14
             arch: aarch64
             suffix: aarch64
+            target: aarch64-apple-darwin
           - platform: macos-14
             arch: x86_64
             suffix: x86_64
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -30,27 +33,88 @@ jobs:
 
       - name: Install Rust targets
         if: matrix.arch == 'x86_64'
-        run: |
-          rustup target add x86_64-apple-darwin
+        run: rustup target add x86_64-apple-darwin
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build Tauri app
-        run: npm run tauri build -- --target ${{ matrix.arch }}-apple-darwin
+        run: npm run tauri build -- --target ${{ matrix.target }}
         env:
           MACOSX_DEPLOYMENT_TARGET: "10.15"
-
-      - name: Find DMG
-        id: find-dmg
-        run: |
-          FIND=$(find src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
-          echo "dmg_path=$FIND" >> $GITHUB_OUTPUT
-          echo "Found: $FIND"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: amos-companion-${{ matrix.suffix }}
-          path: ${{ steps.find-dmg.outputs.dmg_path }}
+          name: amos-companion-macos-${{ matrix.suffix }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          retention-days: 30
+
+  # Linux (Ubuntu)
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suffix: amd64
+            target: x86_64-unknown-linux-gnu
+          - suffix: arm64
+            target: aarch64-unknown-linux-gnu
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: amos-companion-linux-${{ matrix.suffix }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          retention-days: 30
+
+  # Windows
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        run: npm run tauri build
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: amos-companion-windows
+          path: src-tauri/target/release/bundle/msi/*.msi
           retention-days: 30
