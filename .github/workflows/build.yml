@@ -14,6 +14,9 @@ on:
 env:
   R2_ENDPOINT: "https://099898c1732970101eda4c9f399058c8.r2.cloudflarestorage.com"
   R2_BUCKET: "amos-releases"
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+  AWS_DEFAULT_REGION: "auto"
 
 jobs:
   # Build for macOS (Intel and Apple Silicon)
