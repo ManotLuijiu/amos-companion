@@ -18,6 +18,9 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
   AWS_DEFAULT_REGION: "auto"
 
+permissions:
+  contents: write
+
 jobs:
   # Build for macOS (Intel and Apple Silicon)
   build-macos:
