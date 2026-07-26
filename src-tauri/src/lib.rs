@@ -5,6 +5,7 @@ mod device_agent_installer;
 mod device_controller;
 mod scrcpy;
 mod scrcpy_server;
+mod video_stream;
 mod workspace_manager;
 
 use agent_manager::AgentManager;
@@ -13,6 +14,7 @@ use device_agent_installer as installer;
 use device_controller::{DeviceInfo, DeviceList};
 use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
 use scrcpy_server::{create_scrcpy_server, ScrcpyServerManager};
+use video_stream::VideoStream;
 use workspace_manager as wm;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -71,6 +73,7 @@ pub struct AppState {
     pub config_store: Arc<Mutex<ConfigStore>>,
     pub scrcpy_manager: ScrcpyManager,
     pub scrcpy_server: ScrcpyServerManager,
+    pub video_stream: Arc<Mutex<Option<VideoStream>>>,
 }
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
@@ -658,6 +661,79 @@ async fn mirror_swipe(
     server.swipe(x1, y1, x2, y2, duration_ms)
 }
 
+// ─── Video Stream Commands ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StreamInfo {
+    pub ws_url: String,
+    pub port: u16,
+    pub running: bool,
+}
+
+#[tauri::command]
+async fn start_video_stream(
+    serial: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<StreamInfo, String> {
+    info!("Starting video stream for device: {}", serial);
+    
+    // Stop any existing stream
+    {
+        let mut stream = state.video_stream.lock().await;
+        if let Some(ref mut s) = *stream {
+            s.stop();
+        }
+        *stream = None;
+    }
+    
+    // Create and start new stream
+    let mut video_stream = VideoStream::new(serial);
+    let port = video_stream.start()?;
+    let ws_url = format!("ws://127.0.0.1:{}", port);
+    
+    // Store in state
+    {
+        let mut stream = state.video_stream.lock().await;
+        *stream = Some(video_stream);
+    }
+    
+    info!("Video stream started on port {}", port);
+    
+    Ok(StreamInfo {
+        ws_url,
+        port,
+        running: true,
+    })
+}
+
+#[tauri::command]
+async fn stop_video_stream(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    info!("Stopping video stream");
+    
+    let mut stream = state.video_stream.lock().await;
+    if let Some(ref mut s) = *stream {
+        s.stop();
+    }
+    *stream = None;
+    
+    info!("Video stream stopped");
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_stream_info(state: tauri::State<'_, AppState>) -> Result<Option<StreamInfo>, String> {
+    let stream = state.video_stream.lock().await;
+    
+    match &*stream {
+        Some(s) => Ok(Some(StreamInfo {
+            ws_url: s.get_ws_url(),
+            port: s.port,
+            running: s.is_running(),
+        })),
+        None => Ok(None),
+    }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -697,6 +773,7 @@ pub fn run() {
         config_store: Arc::new(Mutex::new(config_store)),
         scrcpy_manager: create_scrcpy_manager(String::new()),
         scrcpy_server: create_scrcpy_server(String::new()),
+        video_stream: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -733,6 +810,10 @@ pub fn run() {
             mirror_control,
             mirror_tap,
             mirror_swipe,
+            // Video stream commands
+            start_video_stream,
+            stop_video_stream,
+            get_stream_info,
         ])
         .setup(|_app| {
             info!("Tauri app setup complete");
