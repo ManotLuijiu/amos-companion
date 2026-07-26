@@ -862,7 +862,10 @@ async function refreshScreenshot(): Promise<void> {
 	} catch (err) {
 		deviceErrorCount++;
 		if (deviceErrorCount >= MAX_SCREENSHOT_ERRORS) {
-			addLog("error", "Device screenshot failed. Check USB debugging authorization.");
+			addLog(
+				"error",
+				"Device screenshot failed. Check USB debugging authorization.",
+			);
 			if (screenshotRefreshInterval) {
 				clearInterval(screenshotRefreshInterval);
 				screenshotRefreshInterval = null;

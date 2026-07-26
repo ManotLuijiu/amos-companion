@@ -220,81 +220,65 @@ jobs:
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip awscliv2.zip
           sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
-          rm -rf awscliv2.zip
+          rm -rf awscliv2.zip aws
 
       - name: Cleanup old macOS builds
         run: |
           echo "=== Cleaning up macOS DMG builds ==="
-          # List all DMG files sorted by date (oldest first)
-          FILES=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
+          # List all DMG files with timestamps, sort by timestamp (newest first), keep 3
+          aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | grep '_aarch64.dmg\|_x86_64.dmg' \
-            | awk '{print $4}')
-
-          # Count files
-          FILE_COUNT=$(echo "$FILES" | grep -c '.')
-          echo "Found $FILE_COUNT macOS DMG files"
-
-          # Keep only last 3, delete rest
-          if [ "$FILE_COUNT" -gt 3 ]; then
-            TO_DELETE=$(echo "$FILES" | head -n -3)
-            for f in $TO_DELETE; do
-              echo "Deleting: $f"
-              aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
-                --endpoint-url ${{ env.R2_ENDPOINT }} \
-                --region auto
+            | sort -k1,2 -r \
+            | tail -n +4 \
+            | awk '{print $4}' \
+            | while read f; do
+              if [ -n "$f" ]; then
+                echo "Deleting: $f"
+                aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
+                  --endpoint-url ${{ env.R2_ENDPOINT }} \
+                  --region auto
+              fi
             done
-          else
-            echo "No cleanup needed (have $FILE_COUNT, keeping 3)"
-          fi
+          echo "macOS cleanup complete"
 
       - name: Cleanup old Linux builds
         run: |
           echo "=== Cleaning up Linux AppImage builds ==="
-          # List all AppImage files sorted by date (oldest first)
-          FILES=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
+          aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | grep '.AppImage' \
-            | awk '{print $4}')
-
-          FILE_COUNT=$(echo "$FILES" | grep -c '.')
-          echo "Found $FILE_COUNT Linux AppImage files"
-
-          if [ "$FILE_COUNT" -gt 3 ]; then
-            TO_DELETE=$(echo "$FILES" | head -n -3)
-            for f in $TO_DELETE; do
-              echo "Deleting: $f"
-              aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
-                --endpoint-url ${{ env.R2_ENDPOINT }} \
-                --region auto
+            | sort -k1,2 -r \
+            | tail -n +4 \
+            | awk '{print $4}' \
+            | while read f; do
+              if [ -n "$f" ]; then
+                echo "Deleting: $f"
+                aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
+                  --endpoint-url ${{ env.R2_ENDPOINT }} \
+                  --region auto
+              fi
             done
-          else
-            echo "No cleanup needed (have $FILE_COUNT, keeping 3)"
-          fi
+          echo "Linux cleanup complete"
 
       - name: Cleanup old Windows builds
         run: |
           echo "=== Cleaning up Windows EXE builds ==="
-          # List all EXE files sorted by date (oldest first)
-          FILES=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
+          aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | grep '.exe' \
-            | awk '{print $4}')
-
-          FILE_COUNT=$(echo "$FILES" | grep -c '.')
-          echo "Found $FILE_COUNT Windows EXE files"
-
-          if [ "$FILE_COUNT" -gt 3 ]; then
-            TO_DELETE=$(echo "$FILES" | head -n -3)
-            for f in $TO_DELETE; do
-              echo "Deleting: $f"
-              aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
-                --endpoint-url ${{ env.R2_ENDPOINT }} \
-                --region auto
+            | sort -k1,2 -r \
+            | tail -n +4 \
+            | awk '{print $4}' \
+            | while read f; do
+              if [ -n "$f" ]; then
+                echo "Deleting: $f"
+                aws s3 rm s3://${{ env.R2_BUCKET }}/companion/$f \
+                  --endpoint-url ${{ env.R2_ENDPOINT }} \
+                  --region auto
+              fi
             done
-          else
-            echo "No cleanup needed (have $FILE_COUNT, keeping 3)"
-          fi
+          echo "Windows cleanup complete"
