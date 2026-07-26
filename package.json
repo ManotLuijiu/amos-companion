@@ -8,6 +8,7 @@
     "amos-connect": "./dist-cli/cli.js"
   },
   "scripts": {
+    "version:set": "bun run scripts/update-version.ts",
     "build": "npm run build:cli && npm run build:gui",
     "build:cli": "mkdir -p dist-cli && esbuild src/cli.ts --bundle --platform=node --outfile=dist-cli/cli.js --format=esm --target=node18 --minify",
     "build:gui": "vite build --config vite.gui.config.ts",
