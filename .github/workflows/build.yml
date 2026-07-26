@@ -225,24 +225,24 @@ jobs:
       - name: Cleanup old builds
         run: |
           echo "=== Cleaning up R2 builds - keeping 3 newest versions ==="
-          
+
           # Get all files in the companion folder
           FILES=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | awk '{print $4}')
-          
+
           # Extract unique versions from filenames
           # Format: AMOS_Companion_VERSION_PLATFORM.EXT
           # Examples: AMOS_Companion_1.0.9_aarch64.dmg, AMOS_Companion_1.0.10_amd64.AppImage
           VERSIONS=$(echo "$FILES" | \
             sed -E 's/AMOS_Companion_([0-9]+\.[0-9]+\.[0-9]+)_.*/\1/' | \
             sort -Vu 2>/dev/null || sort -u)
-          
+
           # Count versions
           VERSION_COUNT=$(echo "$VERSIONS" | grep -c '.')
           echo "Found $VERSION_COUNT unique versions"
-          
+
           # Get versions to delete (all except top 3)
           if [ "$VERSION_COUNT" -gt 3 ]; then
             # Keep top 3 versions (newest)
@@ -265,9 +265,9 @@ jobs:
           else
             echo "No cleanup needed (have $VERSION_COUNT versions, keeping 3)"
           fi
-          
+
           echo "=== Cleanup complete ==="
-          
+
           # List remaining files
           echo "Remaining files:"
           aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \

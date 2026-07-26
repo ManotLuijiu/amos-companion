@@ -263,9 +263,13 @@ async fn sign_in_oauth(
     
     // Get the Google OAuth URL from our backend
     // First, call our endpoint to get the proper Google OAuth URL
+    // Convert API URL to frontend URL
+    // https://amos-api.moo-vpn.online → https://app.amos.moo-vpn.online
     let frontend_url = api_url
         .replace("://api.", "://app.")
-        .replace("/api", "");
+        .replace("://api/", "://app/")
+        .replace("/api", "")
+        .replace("amos-api.", "app.amos.");
     
     let callback_base = format!("http://127.0.0.1:{}", port);
     let google_url_endpoint = format!(
