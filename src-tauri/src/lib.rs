@@ -256,16 +256,20 @@ async fn sign_in_oauth(
     });
     
     // Open the OAuth URL in the browser
-    // Convert API URL to frontend URL and use correct Google OAuth endpoint
+    // Convert API URL to frontend URL
     let frontend_url = api_url
         .replace("://api.", "://app.")
         .replace("/api", "");
     
+    // The callback URL for our local server
+    let callback_base = format!("http://127.0.0.1:{}", port);
+    
     // better-auth Google OAuth endpoint
-    let callback_url = format!("http://127.0.0.1:{}", port);
+    // The callbackUrl is where the OAuth flow redirects after completion
+    // Our callback page at /api/auth/callback will handle the session and redirect
     let oauth_url = format!(
         "{}/api/auth/sign-in/provider/google?callbackUrl={}",
-        frontend_url, callback_url
+        frontend_url, callback_base
     );
     
     info!("Opening OAuth URL: {}", oauth_url);
