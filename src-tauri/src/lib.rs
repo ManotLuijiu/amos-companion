@@ -185,10 +185,16 @@ async fn sign_in_oauth(
     use std::thread;
     use std::time::Duration;
     
+    
     info!("Starting OAuth flow for user login...");
     
-    // Generate a random port for the callback server
-    let port: u16 = 48923; // Fixed port for AMOS Companion OAuth
+    // Bind to port 0 to get an available port
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to bind to localhost: {}", e))?;
+    
+    let addr = listener.local_addr().map_err(|e| format!("Failed to get local address: {}", e))?;
+    let port = addr.port();
+    info!("OAuth callback server listening on port {}", port);
     
     // Create a channel to receive the auth result
     let (tx, rx) = std::sync::mpsc::channel::<Result<(String, String), String>>();
@@ -196,29 +202,21 @@ async fn sign_in_oauth(
     // Start a local HTTP server to receive the OAuth callback
     let server_tx = tx.clone();
     let _server = thread::spawn(move || {
-        let addr = format!("127.0.0.1:{}", port);
-        let listener = match TcpListener::bind(&addr) {
-            Ok(l) => l,
-            Err(e) => {
-                server_tx.send(Err(format!("Failed to bind to port {}: {}", port, e))).ok();
-                return;
-            }
-        };
-        
         // Set a timeout so we don't hang forever
         listener.set_nonblocking(true).ok();
         
         // Accept connection with timeout
         let mut attempts = 0;
-        while attempts < 100 {
+        while attempts < 200 { // 20 seconds timeout
             thread::sleep(Duration::from_millis(100));
             attempts += 1;
             
             if let Ok((mut stream, _)) = listener.accept() {
                 use std::io::{Read, Write};
-                let mut buffer = [0u8; 1024];
+                let mut buffer = [0u8; 2048];
                 if stream.read(&mut buffer).is_ok() {
                     let request = String::from_utf8_lossy(&buffer);
+                    info!("Received callback request: {}", &request[..request.len().min(200)]);
                     
                     // Parse the callback URL from the request
                     // Format: GET /callback?user_id=xxx&email=xxx HTTP/1.1
@@ -240,12 +238,14 @@ async fn sign_in_oauth(
                         }
                         
                         // Send success response
-                        let response = "HTTP/1.1 200 OK\r\n\r\n<!DOCTYPE html><html><head><title>AMOS Companion</title></head><body><h1>Login Successful!</h1><p>You can close this window and return to AMOS Companion.</p><script>window.close();</script></body></html>";
+                        let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><head><title>AMOS Companion</title></head><body><h1>Login Successful!</h1><p>You can close this window and return to AMOS Companion.</p><script>window.close();</script></body></html>";
                         stream.write_all(response.as_bytes()).ok();
                         
                         if !user_id.is_empty() {
+                            info!("Got user_id: {}", user_id);
                             server_tx.send(Ok((user_id.clone(), email.clone()))).ok();
                         } else {
+                            info!("No user_id in callback");
                             server_tx.send(Err("No user_id in callback".to_string())).ok();
                         }
                     }
@@ -256,13 +256,16 @@ async fn sign_in_oauth(
     });
     
     // Open the OAuth URL in the browser
-    // Convert API URL to frontend URL
+    // Convert API URL to frontend URL and use correct Google OAuth endpoint
     let frontend_url = api_url
         .replace("://api.", "://app.")
         .replace("/api", "");
+    
+    // better-auth Google OAuth endpoint
+    let callback_url = format!("http://127.0.0.1:{}", port);
     let oauth_url = format!(
-        "{}/api/auth/sign-in/oauth/google?callback=http://127.0.0.1:{}",
-        frontend_url, port
+        "{}/api/auth/sign-in/provider/google?callbackUrl={}",
+        frontend_url, callback_url
     );
     
     info!("Opening OAuth URL: {}", oauth_url);

@@ -302,7 +302,6 @@ async function handleGoogleLogin(): Promise<void> {
 		// Use the new OAuth flow with local callback server
 		await invoke("sign_in_oauth", { apiUrl });
 
-
 		userInfo = { id: "", email: "" };
 
 		const loginSection = document.getElementById("login-section");
