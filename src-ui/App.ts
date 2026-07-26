@@ -337,7 +337,6 @@ async function handleLogin(event: Event): Promise<void> {
 	event.preventDefault();
 
 	const form = event.target as HTMLFormElement;
-	const apiUrlInput = form.querySelector("#login-api-url") as HTMLInputElement;
 	const emailInput = form.querySelector("#login-email") as HTMLInputElement;
 	const passwordInput = form.querySelector(
 		"#login-password",
@@ -347,7 +346,9 @@ async function handleLogin(event: Event): Promise<void> {
 		"button[type=submit]",
 	) as HTMLButtonElement;
 
-	const apiUrl = apiUrlInput.value;
+	// Get API URL from the input outside the form
+	const apiUrlInput = document.getElementById("login-api-url") as HTMLInputElement;
+	const apiUrl = apiUrlInput?.value || "https://api.amos.moo-vpn.online";
 	const email = emailInput.value;
 	const password = passwordInput.value;
 
