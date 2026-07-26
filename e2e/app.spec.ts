@@ -62,4 +62,21 @@ test.describe("AMOS Companion UI", () => {
 			"AMOS Device Management",
 		);
 	});
+
+	test("should show placeholder in mirror panel when no device selected", async ({ page }) => {
+		await expect(page.locator("#mirror-placeholder")).toContainText(
+			"Select a device to start mirroring",
+		);
+	});
+
+	test("should have scrcpy toggle checkbox", async ({ page }) => {
+		await expect(page.locator("#toggle-scrcpy")).toBeAttached();
+	});
+
+	test("should have device search input", async ({ page }) => {
+		await expect(page.locator("#device-search")).toBeAttached();
+	});
 });
+
+// Note: Agent control tests (start/stop button, device list) require login
+// These can be tested when we implement auth mocking in E2E tests
