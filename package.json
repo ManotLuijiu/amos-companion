@@ -18,7 +18,11 @@
     "dev": "npm run build:cli && vite dev --config vite.gui.config.ts",
     "dev:tauri": "npm run build:cli && tauri dev",
     "tauri": "tauri",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:ci": "playwright test --reporter=html"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.2.0",
@@ -33,6 +37,7 @@
     "@biomejs/biome": "2.1.3",
     "@commitlint/cli": "^20.3.1",
     "@commitlint/config-conventional": "^20.3.1",
+    "@playwright/test": "^1.49.0",
     "@tauri-apps/cli": "^2.2.0",
     "@types/cli-progress": "^3.11.0",
     "@types/inquirer": "^9.0.3",

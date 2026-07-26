@@ -55,9 +55,9 @@ let state: AgentStatus = {
 let display: StatusDisplay = "loading";
 let selectedDevice: DeviceInfo | null = null;
 let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
-const _scrcpyEnabled = false;
+let scrcpyEnabled = false;
 let scrcpyAvailable = false;
-const _deviceAgentInstalled = false;
+let _deviceAgentInstalled = false;
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
@@ -1693,7 +1693,7 @@ export async function init(): Promise<void> {
 			path: string;
 			os: string;
 		}>("get_device_agent_status");
-		deviceAgentInstalled = agentStatus.installed;
+		_deviceAgentInstalled = agentStatus.installed;
 		addLog(
 			"info",
 			`Device agent ${agentStatus.installed ? "installed" : "not found"} (${agentStatus.os})`,

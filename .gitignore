@@ -24,3 +24,5 @@ Cargo.lock
 *.log
 npm-debug.log*
 .env
+test-results/
+playwright-report/
