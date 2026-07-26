@@ -255,24 +255,45 @@ async fn sign_in_oauth(
         }
     });
     
-    // Open the OAuth URL in the browser
-    // Convert API URL to frontend URL
+    // Get the Google OAuth URL from our backend
+    // First, call our endpoint to get the proper Google OAuth URL
     let frontend_url = api_url
         .replace("://api.", "://app.")
         .replace("/api", "");
     
-    // The callback URL for our local server
     let callback_base = format!("http://127.0.0.1:{}", port);
-    
-    // better-auth Google OAuth endpoint
-    // The callbackUrl is where the OAuth flow redirects after completion
-    // Our callback page at /api/auth/callback will handle the session and redirect
-    let oauth_url = format!(
-        "{}/api/auth/sign-in/provider/google?callbackUrl={}",
+    let google_url_endpoint = format!(
+        "{}/api/auth/companion/google-url?callbackUrl={}",
         frontend_url, callback_base
     );
     
-    info!("Opening OAuth URL: {}", oauth_url);
+    info!("Getting Google OAuth URL from: {}", google_url_endpoint);
+    
+    // Fetch the Google OAuth URL from our backend
+    let client = reqwest::Client::new();
+    let oauth_response = client
+        .get(&google_url_endpoint)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get OAuth URL: {}", e))?;
+    
+    if !oauth_response.status().is_success() {
+        let status = oauth_response.status();
+        let error_text = oauth_response.text().await.unwrap_or_default();
+        return Err(format!("Failed to get OAuth URL: {} - {}", status, error_text));
+    }
+    
+    let oauth_data: serde_json::Value = oauth_response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OAuth response: {}", e))?;
+    
+    let oauth_url = oauth_data["url"]
+        .as_str()
+        .ok_or_else(|| "No URL in OAuth response".to_string())?;
+    
+    info!("Got Google OAuth URL, opening browser...");
     
     #[cfg(target_os = "macos")]
     std::process::Command::new("open")
@@ -282,7 +303,7 @@ async fn sign_in_oauth(
     
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open")
-        .arg(&oauth_url)
+        .arg(oauth_url)
         .spawn()
         .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
     
