@@ -26,7 +26,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            api_url: String::from("http://127.0.0.1:8100"),
+            api_url: String::from("https://amos-api.moo-vpn.online"),
             user_id: None,
             user_email: None,
             agent_id: uuid::Uuid::new_v4().to_string(),

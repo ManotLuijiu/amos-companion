@@ -308,7 +308,6 @@ async function handleGoogleLogin(): Promise<void> {
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
-		
 
 		addLog("info", `Signed in successfully!`);
 		await refreshStatus();
@@ -358,7 +357,6 @@ async function handleLogin(event: Event): Promise<void> {
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
-		
 
 		addLog("info", `Signed in as ${email}`);
 
@@ -1433,7 +1431,10 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	} catch (error) {
 		screenshotErrorCount++;
 		if (screenshotErrorCount >= MAX_SCREENSHOT_ERRORS) {
-			addLog("error", "Device screenshot failed, stopping mirror. Check USB debugging authorization.");
+			addLog(
+				"error",
+				"Device screenshot failed, stopping mirror. Check USB debugging authorization.",
+			);
 			stopMirror();
 		}
 	}
@@ -1621,7 +1622,6 @@ export async function init(): Promise<void> {
 			const loginSection = document.getElementById("login-section");
 			const mainContent = document.getElementById("main-content");
 			if (loginSection) loginSection.style.display = "none";
-			
 		} else {
 			addLog("info", "Please sign in to continue");
 			const loginSection = document.getElementById("login-section");
