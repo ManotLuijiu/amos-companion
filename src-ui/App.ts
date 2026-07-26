@@ -865,7 +865,7 @@ async function refreshScreenshot(): Promise<void> {
 
 async function handleScreenTap(event: MouseEvent): Promise<void> {
 	if (!currentMirroringDevice) return;
-	
+
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
 	) as HTMLImageElement;

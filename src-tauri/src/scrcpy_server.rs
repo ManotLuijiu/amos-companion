@@ -1,269 +1,219 @@
-//! Scrcpy-Server WebSocket streaming implementation
+//! Scrcpy-Server streaming implementation
 //! 
-//! This module implements proper Android screen mirroring using scrcpy-server,
-//! providing low-latency video streaming with touch input support.
+//! Implements Android screen mirroring using scrcpy-server with ADB forwarding.
 
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tokio::time::Duration;
+use tracing::info;
 
 use crate::adb::{find_adb, run_adb};
-
-/// Path to scrcpy-server JAR (placed next to executable or in resources)
-fn get_scrcpy_server_path() -> PathBuf {
-    // Try multiple locations
-    let candidates = vec![
-        // Next to executable
-        PathBuf::from(".").join("scrcpy-server.jar"),
-        // Resources folder
-        PathBuf::from(".").join("resources").join("scrcpy-server.jar"),
-        // Parent directory
-        PathBuf::from("..").join("scrcpy-server.jar"),
-    ];
-
-    for path in candidates {
-        if path.exists() {
-            info!("Found scrcpy-server at: {:?}", path);
-            return path;
-        }
-    }
-
-    // Fallback to temp
-    info!("scrcpy-server not found, will download on first use");
-    std::env::temp_dir().join("scrcpy-server.jar")
-}
 
 /// Default scrcpy server settings
 const DEFAULT_BITRATE: i32 = 8000000; // 8 Mbps
 const DEFAULT_MAX_FPS: i32 = 60;
-const DEFAULT_BUFFER_TIME: i32 = 0;
+const DEFAULT_MAX_WIDTH: i32 = 1920;
 
-/// Screen dimensions
-#[derive(Debug, Clone)]
-pub struct ScreenSize {
-    pub width: u32,
-    pub height: u32,
+/// Path to scrcpy-server JAR
+fn get_scrcpy_server_path() -> PathBuf {
+    let candidates = vec![
+        PathBuf::from(".").join("scrcpy-server"),
+        PathBuf::from("..").join("scrcpy-server"),
+        std::env::temp_dir().join("scrcpy-server.jar"),
+    ];
+
+    for path in candidates {
+        if path.join("scrcpy-server.jar").exists() {
+            return path.join("scrcpy-server.jar");
+        }
+        if path.exists() && path.to_string_lossy().ends_with(".jar") {
+            return path;
+        }
+    }
+    std::env::temp_dir().join("scrcpy-server.jar")
 }
 
-/// Video frame from scrcpy
-#[derive(Debug, Clone)]
-pub struct VideoFrame {
-    pub data: Vec<u8>,
-    pub timestamp: u64,
+/// Get or download scrcpy-server
+fn ensure_scrcpy_server() -> Result<PathBuf, String> {
+    let path = get_scrcpy_server_path();
+    
+    if path.exists() {
+        return Ok(path);
+    }
+    
+    info!("Downloading scrcpy-server...");
+    
+    // Download from GitHub
+    let output = Command::new("curl")
+        .args([
+            "-sL",
+            "https://github.com/Genymobile/scrcpy/releases/download/v2.1.1/scrcpy-server-v2.1.1",
+            "-o", path.to_str().unwrap_or("/tmp/scrcpy-server.jar"),
+        ])
+        .output();
+    
+    match output {
+        Ok(out) if out.status.success() && path.exists() => {
+            info!("Downloaded scrcpy-server");
+            Ok(path)
+        }
+        _ => {
+            Err("Failed to download scrcpy-server".to_string())
+        }
+    }
 }
 
-/// ScrcpyServer state
+/// Scrcpy server state
 pub struct ScrcpyServer {
-    /// Server process (scrcpy-server running on device)
-    process: Option<Child>,
-    /// ADB tunnel for video port
-    adb_process: Option<Child>,
-    /// Device serial
     serial: String,
-    /// Is currently streaming
-    active: bool,
-    /// Video port on device
-    device_port: i32,
-    /// Local port forwarded
-    local_port: i32,
-    /// Screen size
-    screen_size: Option<ScreenSize>,
+    local_port: u16,
+    process: Option<std::process::Child>,
+}
+
+/// Scrcpy control message types
+#[derive(Debug)]
+#[repr(u8)]
+enum ControlMessage {
+    /// Key event (Android keycode)
+    Keycode { action: u8, keycode: u32, repeat: u32, meta: u32 } = 0,
+    /// Text input
+    Text { text: String } = 1,
+    /// Mouse/touch event
+    Touch { action: u8, x: i32, y: i32, normalized: bool } = 2,
+    /// Scroll event
+    Scroll { x: i32, y: i32, hscroll: i32, vscroll: i32 } = 3,
 }
 
 impl ScrcpyServer {
     pub fn new(serial: String) -> Self {
         Self {
-            process: None,
-            adb_process: None,
             serial,
-            active: false,
-            device_port: 8888,
             local_port: 8888,
-            screen_size: None,
+            process: None,
         }
-    }
-
-    /// Check if scrcpy server is running
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Get current screen size
-    pub fn get_screen_size(&self) -> Option<ScreenSize> {
-        self.screen_size.clone()
     }
 
     /// Start scrcpy-server streaming
     pub fn start(&mut self) -> Result<String, String> {
-        if self.active {
-            return Err("Server already running".to_string());
-        }
-
         let adb_path = find_adb();
-
+        
         // Step 1: Kill any existing scrcpy server on device
-        info!("Killing existing scrcpy server on device");
-        let _ = run_adb(&[
-            "-s", &self.serial, "shell", "pkill", "-f", "scrcpy",
-        ]);
-        let _ = run_adb(&[
-            "-s", &self.serial, "shell", "am", "force-stop", "org.genymobile.scrcpy",
-        ]);
+        info!("Stopping any existing scrcpy-server");
+        let _ = run_adb(&["-s", &self.serial, "shell", "pkill", "-9", "-f", "scrcpy"]);
+        let _ = run_adb(&["-s", &self.serial, "shell", "am", "force-stop", "org.genymobile.scrcpy"]);
+        thread::sleep(Duration::from_millis(200));
 
-        // Step 2: Push scrcpy-server to device
+        // Step 2: Ensure scrcpy-server is available
+        let server_path = ensure_scrcpy_server()?;
+        
+        // Step 3: Push scrcpy-server to device
+        let device_server_path = "/data/local/tmp/scrcpy-server.jar";
         info!("Pushing scrcpy-server to device");
-        let server_path = "/data/local/tmp/scrcpy-server.jar";
         
-        // Find or download scrcpy-server
-        let server_file = get_scrcpy_server_path();
+        let _ = run_adb(&["-s", &self.serial, "shell", "rm", "-f", device_server_path]);
         
-        if !server_file.exists() {
-            // Download if not found
-            info!("Downloading scrcpy-server...");
-            let download_result = Command::new("curl")
-                .args([
-                    "-sL",
-                    "https://github.com/Genymobile/scrcpy/releases/download/v2.1.1/scrcpy-server-v2.1.1",
-                    "-o", server_file.to_str().unwrap(),
-                ])
-                .output();
-            
-            if download_result.is_err() || !server_file.exists() {
-                return Err("Failed to download scrcpy-server".to_string());
-            }
-        }
-
-        // Push to device
         let push_result = Command::new(&adb_path)
-            .args(["-s", &self.serial, "push", server_file.to_str().unwrap(), server_path])
+            .args(["-s", &self.serial, "push", server_path.to_str().unwrap(), device_server_path])
             .output();
-
-        if let Ok(output) = push_result {
-            if !output.status.success() {
-                let err = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Failed to push scrcpy-server: {}", err));
+            
+        if let Ok(out) = push_result {
+            if !out.status.success() {
+                return Err(format!("Failed to push scrcpy-server: {}", String::from_utf8_lossy(&out.stderr)));
             }
         }
 
-        // Make scrcpy-server executable
-        let _ = run_adb(&[
-            "-s", &self.serial, "shell", "chmod", "755", server_path,
-        ]);
+        // Make executable
+        let _ = run_adb(&["-s", &self.serial, "shell", "chmod", "755", device_server_path]);
 
-        // Step 3: Start scrcpy-server on device
+        // Step 4: Find available local port
+        let port = self.find_available_port();
+        self.local_port = port;
+        
+        // Step 5: Forward local port to device
+        let _ = Command::new(&adb_path)
+            .args(["-s", &self.serial, "forward", "--remove", &format!("tcp:{}", port)])
+            .output();
+            
+        let forward_result = Command::new(&adb_path)
+            .args(["-s", &self.serial, "forward", &format!("tcp:{}", port), &format!("tcp:{}", port)])
+            .output();
+            
+        if let Ok(out) = forward_result {
+            if !out.status.success() {
+                return Err(format!("Failed to forward port: {}", String::from_utf8_lossy(&out.stderr)));
+            }
+        }
+
+        // Step 6: Start scrcpy-server on device
         info!("Starting scrcpy-server on device");
         
         let start_cmd = format!(
-            "CLASSPATH={} app_process / --proto={} --bit-rate={} --max-fps={} --buffer-time={}",
-            server_path,
-            self.device_port,
+            "CLASSPATH={} app_process / {} --bit-rate={} --max-fps={} --max-size={}",
+            device_server_path,
+            port,
             DEFAULT_BITRATE,
             DEFAULT_MAX_FPS,
-            DEFAULT_BUFFER_TIME
+            DEFAULT_MAX_WIDTH
         );
-
-        let start_result = Command::new(&adb_path)
-            .args([
-                "-s", &self.serial, "shell", "nohup", &start_cmd,
-            ])
+        
+        let child = Command::new(&adb_path)
+            .args(["-s", &self.serial, "shell", "nohup", &start_cmd])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn();
-
-        match start_result {
-            Ok(child) => {
-                self.process = Some(child);
-            }
-            Err(e) => {
-                return Err(format!("Failed to start scrcpy-server: {}", e));
-            }
-        }
+            .spawn()
+            .map_err(|e| format!("Failed to start scrcpy-server: {}", e))?;
+            
+        self.process = Some(child);
 
         // Wait for server to start
-        thread::sleep(std::time::Duration::from_millis(500));
+        thread::sleep(Duration::from_secs(1));
 
-        // Step 4: Forward device port to localhost
-        info!("Forwarding device port {} to localhost", self.device_port);
-        
-        // Kill any existing forward
-        let _ = Command::new(&adb_path)
-            .args(["-s", &self.serial, "forward", "--remove", &format!("tcp:{}", self.device_port)])
-            .output();
+        // Return the WebSocket URL for frontend
+        Ok(format!("ws://127.0.0.1:{}", port))
+    }
 
-        let forward_result = Command::new(&adb_path)
-            .args([
-                "-s", &self.serial, "forward",
-                &format!("tcp:{}", self.local_port),
-                &format!("tcp:{}", self.device_port),
-            ])
-            .output();
-
-        match forward_result {
-            Ok(output) if output.status.success() => {
-                info!("Port forwarded successfully");
-            }
-            Ok(output) => {
-                let err = String::from_utf8_lossy(&output.stderr);
-                warn!("Port forward warning: {}", err);
-            }
-            Err(e) => {
-                return Err(format!("Failed to forward port: {}", e));
+    fn find_available_port(&self) -> u16 {
+        // Try common ports first
+        for port in [8888, 8889, 8890, 8891, 8892].iter() {
+            if self.is_port_available(*port) {
+                return *port;
             }
         }
+        // Fall back to random
+        (9000..10000).find(|p| self.is_port_available(*p)).unwrap_or(8888)
+    }
 
-        self.active = true;
-        
-        // Return the local URL for frontend to connect
-        Ok(format!("http://127.0.0.1:{}/", self.local_port))
+    fn is_port_available(&self, port: u16) -> bool {
+        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
     }
 
     /// Stop scrcpy-server
     pub fn stop(&mut self) {
-        if !self.active {
-            return;
-        }
-
         info!("Stopping scrcpy-server");
-
-        // Kill scrcpy process
+        
         if let Some(mut child) = self.process.take() {
             let _ = child.kill();
             let _ = child.wait();
         }
-
-        // Kill ADB tunnel
-        if let Some(mut child) = self.adb_process.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-
-        // Kill server on device
-        let _ = run_adb(&[
-            "-s", &self.serial, "shell", "pkill", "-f", "scrcpy",
-        ]);
-
-        // Remove port forward
+        
         let adb_path = find_adb();
+        
+        // Kill server on device
+        let _ = run_adb(&["-s", &self.serial, "shell", "pkill", "-9", "-f", "scrcpy"]);
+        
+        // Remove port forward
         let _ = Command::new(&adb_path)
-            .args([
-                "-s", &self.serial, "forward",
-                "--remove", &format!("tcp:{}", self.local_port),
-            ])
+            .args(["-s", &self.serial, "forward", "--remove", &format!("tcp:{}", self.local_port)])
             .output();
-
-        self.active = false;
+            
         info!("scrcpy-server stopped");
     }
 
-    /// Send touch event (tap)
+    /// Send tap event
     pub fn tap(&self, x: i32, y: i32) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
         run_adb(&[
             "-s", &self.serial, "shell", "input", "tap",
             &x.to_string(), &y.to_string(),
@@ -273,10 +223,6 @@ impl ScrcpyServer {
 
     /// Send swipe event
     pub fn swipe(&self, x1: i32, y1: i32, x2: i32, y2: i32, duration_ms: i32) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
         run_adb(&[
             "-s", &self.serial, "shell", "input", "swipe",
             &x1.to_string(), &y1.to_string(),
@@ -286,53 +232,43 @@ impl ScrcpyServer {
         Ok(())
     }
 
-    /// Send text input
+    /// Send text
     pub fn text(&self, text: &str) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
-        // Convert spaces to %s for ADB
-        let escaped = text.replace(' ', "%s");
-        
+        let escaped = text.replace(' ', "%s").replace("'", "\\'");
         run_adb(&[
             "-s", &self.serial, "shell", "input", "text", &escaped,
         ])?;
         Ok(())
     }
 
-    /// Press back button
+    /// Press back
     pub fn back(&self) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
         run_adb(&[
             "-s", &self.serial, "shell", "input", "keyevent", "KEYCODE_BACK",
         ])?;
         Ok(())
     }
 
-    /// Press home button
+    /// Press home
     pub fn home(&self) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
         run_adb(&[
             "-s", &self.serial, "shell", "input", "keyevent", "KEYCODE_HOME",
         ])?;
         Ok(())
     }
 
-    /// Press enter button
+    /// Press enter
     pub fn enter(&self) -> Result<(), String> {
-        if !self.active {
-            return Err("Server not running".to_string());
-        }
-
         run_adb(&[
             "-s", &self.serial, "shell", "input", "keyevent", "KEYCODE_ENTER",
+        ])?;
+        Ok(())
+    }
+
+    /// Press power
+    pub fn power(&self) -> Result<(), String> {
+        run_adb(&[
+            "-s", &self.serial, "shell", "input", "keyevent", "KEYCODE_POWER",
         ])?;
         Ok(())
     }
@@ -344,9 +280,20 @@ impl Drop for ScrcpyServer {
     }
 }
 
-/// Shared scrcpy server manager
+/// Shared scrcpy server manager with async support
 pub type ScrcpyServerManager = Arc<Mutex<ScrcpyServer>>;
 
 pub fn create_scrcpy_server(serial: String) -> ScrcpyServerManager {
     Arc::new(Mutex::new(ScrcpyServer::new(serial)))
+}
+
+/// Start mirror and return WebSocket URL
+pub fn start_mirror_ws(serial: String) -> Result<String, String> {
+    let mut server = ScrcpyServer::new(serial);
+    server.start()
+}
+
+/// Stop mirror
+pub fn stop_mirror_ws(server: &mut ScrcpyServer) {
+    server.stop();
 }
