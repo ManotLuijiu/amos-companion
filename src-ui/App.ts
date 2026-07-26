@@ -838,6 +838,10 @@ function closeDevicePanel(): void {
 	}
 }
 
+let deviceErrorCount = 0;
+let mirrorErrorCount = 0;
+const MAX_SCREENSHOT_ERRORS = 3;
+
 async function refreshScreenshot(): Promise<void> {
 	if (!selectedDevice) return;
 	const loading = document.getElementById("screen-loading");
@@ -854,8 +858,16 @@ async function refreshScreenshot(): Promise<void> {
 		if (screenImg && base64) {
 			screenImg.src = `data:image/png;base64,${base64}`;
 		}
+		deviceErrorCount = 0;
 	} catch (err) {
-		addLog("debug", `Screenshot failed: ${err}`);
+		deviceErrorCount++;
+		if (deviceErrorCount >= MAX_SCREENSHOT_ERRORS) {
+			addLog("error", "Device screenshot failed. Check USB debugging authorization.");
+			if (screenshotRefreshInterval) {
+				clearInterval(screenshotRefreshInterval);
+				screenshotRefreshInterval = null;
+			}
+		}
 	}
 
 	if (loading) loading.style.display = "none";
@@ -1415,9 +1427,6 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorWifi) mirrorWifi.textContent = "—";
 }
 
-let screenshotErrorCount = 0;
-const MAX_SCREENSHOT_ERRORS = 3;
-
 async function refreshMirrorScreen(serial: string): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
@@ -1427,10 +1436,10 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	try {
 		const base64 = await invoke<string>("capture_screenshot", { serial });
 		mirrorScreen.src = `data:image/png;base64,${base64}`;
-		screenshotErrorCount = 0; // Reset error count on success
+		mirrorErrorCount = 0; // Reset error count on success
 	} catch (error) {
-		screenshotErrorCount++;
-		if (screenshotErrorCount >= MAX_SCREENSHOT_ERRORS) {
+		mirrorErrorCount++;
+		if (mirrorErrorCount >= MAX_SCREENSHOT_ERRORS) {
 			addLog(
 				"error",
 				"Device screenshot failed, stopping mirror. Check USB debugging authorization.",
