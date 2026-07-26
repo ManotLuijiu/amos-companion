@@ -4,6 +4,7 @@ mod config_store;
 mod device_agent_installer;
 mod device_controller;
 mod scrcpy;
+mod scrcpy_server;
 mod workspace_manager;
 
 use agent_manager::AgentManager;
@@ -11,6 +12,7 @@ use config_store::ConfigStore;
 use device_agent_installer as installer;
 use device_controller::{DeviceInfo, DeviceList};
 use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
+use scrcpy_server::{create_scrcpy_server, ScrcpyServerManager};
 use workspace_manager as wm;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -68,6 +70,7 @@ pub struct AppState {
     pub agent_manager: Arc<Mutex<AgentManager>>,
     pub config_store: Arc<Mutex<ConfigStore>>,
     pub scrcpy_manager: ScrcpyManager,
+    pub scrcpy_server: ScrcpyServerManager,
 }
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
@@ -591,6 +594,70 @@ async fn stop_scrcpy(state: tauri::State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+// ─── Scrcpy-Server WebSocket Commands ─────────────────────────────────────────
+
+#[tauri::command]
+async fn start_mirror(
+    serial: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    info!("Starting mirror for device: {}", serial);
+    let mut server = state.scrcpy_server.lock().await;
+    
+    // Update serial
+    *server = scrcpy_server::ScrcpyServer::new(serial);
+    
+    // Start server
+    server.start()
+}
+
+#[tauri::command]
+async fn stop_mirror(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    info!("Stopping mirror");
+    let mut server = state.scrcpy_server.lock().await;
+    server.stop();
+    Ok(())
+}
+
+#[tauri::command]
+async fn mirror_control(
+    _serial: String,
+    action: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let server = state.scrcpy_server.lock().await;
+    
+    match action.as_str() {
+        "back" => server.back(),
+        "home" => server.home(),
+        "enter" => server.enter(),
+        _ => Err(format!("Unknown action: {}", action)),
+    }
+}
+
+#[tauri::command]
+async fn mirror_tap(
+    x: i32,
+    y: i32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let server = state.scrcpy_server.lock().await;
+    server.tap(x, y)
+}
+
+#[tauri::command]
+async fn mirror_swipe(
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    duration_ms: i32,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let server = state.scrcpy_server.lock().await;
+    server.swipe(x1, y1, x2, y2, duration_ms)
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -629,6 +696,7 @@ pub fn run() {
         agent_manager: Arc::new(Mutex::new(agent_manager)),
         config_store: Arc::new(Mutex::new(config_store)),
         scrcpy_manager: create_scrcpy_manager(String::new()),
+        scrcpy_server: create_scrcpy_server(String::new()),
     };
 
     tauri::Builder::default()
@@ -659,6 +727,12 @@ pub fn run() {
             device_back,
             device_home,
             device_enter,
+            // New scrcpy-server commands
+            start_mirror,
+            stop_mirror,
+            mirror_control,
+            mirror_tap,
+            mirror_swipe,
         ])
         .setup(|_app| {
             info!("Tauri app setup complete");

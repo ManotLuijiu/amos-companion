@@ -864,20 +864,21 @@ async function refreshScreenshot(): Promise<void> {
 }
 
 async function handleScreenTap(event: MouseEvent): Promise<void> {
-	if (!selectedDevice) return;
-	const screenImg = document.getElementById(
-		"device-screen",
+	if (!currentMirroringDevice) return;
+	
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
 	) as HTMLImageElement;
-	if (!screenImg || !screenImg.naturalWidth) return;
+	if (!mirrorScreen || !mirrorScreen.naturalWidth) return;
 
-	const rect = screenImg.getBoundingClientRect();
-	const scaleX = screenImg.naturalWidth / rect.width;
-	const scaleY = screenImg.naturalHeight / rect.height;
+	const rect = mirrorScreen.getBoundingClientRect();
+	const scaleX = mirrorScreen.naturalWidth / rect.width;
+	const scaleY = mirrorScreen.naturalHeight / rect.height;
 	const x = Math.round((event.clientX - rect.left) * scaleX);
 	const y = Math.round((event.clientY - rect.top) * scaleY);
 
 	try {
-		await invoke("device_tap", { serial: selectedDevice.serial, x, y });
+		await invoke("device_tap", { serial: currentMirroringDevice, x, y });
 		addLog("debug", `Tap: ${x},${y}`);
 	} catch (err) {
 		addLog("error", `Tap failed: ${err}`);
@@ -1088,7 +1089,9 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 	const list = document.getElementById("device-list");
 	const empty = document.getElementById("device-empty");
 	const count = document.getElementById("device-count");
-	const searchInput = document.getElementById("device-search") as HTMLInputElement;
+	const searchInput = document.getElementById(
+		"device-search",
+	) as HTMLInputElement;
 	const searchTerm = searchInput?.value?.toLowerCase() ?? "";
 
 	// Filter devices by search term
@@ -1167,8 +1170,14 @@ async function toggleDeviceMirror(device: DeviceInfo): Promise<void> {
 	}
 }
 
+// Screenshot polling interval for mirror
+let mirrorPollingInterval: ReturnType<typeof setInterval> | null = null;
+const MIRROR_REFRESH_MS = 100; // 10 FPS for MVP
+
 async function startMirror(device: DeviceInfo): Promise<void> {
-	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
@@ -1185,35 +1194,53 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorLoading) mirrorLoading.style.display = "flex";
 	if (mirrorScreen) mirrorScreen.style.display = "none";
 	if (mirrorControls) mirrorControls.style.display = "flex";
-	if (mirrorDeviceName) mirrorDeviceName.textContent = device.model || device.serial;
+	if (mirrorDeviceName)
+		mirrorDeviceName.textContent = device.model || device.serial;
 
 	currentMirroringDevice = device.serial;
 
+	// Get initial screenshot
+	await refreshMirrorScreen(device.serial);
+
+	// Start polling for screenshots
+	if (mirrorPollingInterval) {
+		clearInterval(mirrorPollingInterval);
+	}
+	mirrorPollingInterval = setInterval(async () => {
+		if (currentMirroringDevice) {
+			await refreshMirrorScreen(currentMirroringDevice);
+		}
+	}, MIRROR_REFRESH_MS);
+
+	if (mirrorScreen) {
+		mirrorScreen.style.display = "block";
+	}
+	if (mirrorLoading) mirrorLoading.style.display = "none";
+
+	// Update device info
+	if (mirrorBattery)
+		mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
+	if (mirrorWifi) mirrorWifi.textContent = "—";
+
+	addLog("info", `Mirror started for ${device.serial}`);
+}
+
+async function refreshMirrorScreen(serial: string): Promise<void> {
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
+	if (!mirrorScreen || !currentMirroringDevice) return;
+
 	try {
-		// Start mirror via Tauri command
-		const imageUrl = await invoke<string>("start_mirror", {
-			deviceId: device.serial,
+		// Get screenshot as base64 PNG
+		const base64 = await invoke<string>("capture_screenshot", {
+			serial,
 		});
 
-		if (mirrorScreen) {
-			mirrorScreen.src = imageUrl;
-			mirrorScreen.style.display = "block";
-		}
-		if (mirrorLoading) mirrorLoading.style.display = "none";
-
-		// Update device info
-		if (mirrorBattery) mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
-		if (mirrorWifi) mirrorWifi.textContent = "—";
-
-		addLog("info", `Mirror started for ${device.serial}`);
-
-		// Refresh device list to update button state
-		refreshDeviceList([]);
+		// Update image source
+		mirrorScreen.src = `data:image/png;base64,${base64}`;
 	} catch (error) {
-		addLog("error", `Failed to start mirror: ${error}`);
-		if (mirrorLoading) mirrorLoading.style.display = "none";
-		if (mirrorPlaceholder) mirrorPlaceholder.style.display = "flex";
-		currentMirroringDevice = null;
+		// Silently ignore polling errors to avoid log spam
 	}
 }
 
@@ -1223,15 +1250,16 @@ async function stopMirror(): Promise<void> {
 	const deviceSerial = currentMirroringDevice;
 	addLog("info", `Stopping mirror for ${deviceSerial}...`);
 
-	try {
-		await invoke("stop_mirror", { deviceId: deviceSerial });
-		addLog("info", `Mirror stopped for ${deviceSerial}`);
-	} catch (error) {
-		addLog("error", `Failed to stop mirror: ${error}`);
+	// Stop polling
+	if (mirrorPollingInterval) {
+		clearInterval(mirrorPollingInterval);
+		mirrorPollingInterval = null;
 	}
 
 	// Reset mirror UI
-	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
@@ -1246,6 +1274,8 @@ async function stopMirror(): Promise<void> {
 
 	currentMirroringDevice = null;
 
+	addLog("info", `Mirror stopped for ${deviceSerial}`);
+
 	// Refresh device list to update button state
 	refreshDeviceList([]);
 }
@@ -1253,11 +1283,23 @@ async function stopMirror(): Promise<void> {
 async function handleMirrorControl(action: string): Promise<void> {
 	if (!currentMirroringDevice) return;
 
+	const serial = currentMirroringDevice;
+
 	try {
-		await invoke("mirror_control", {
-			deviceId: currentMirroringDevice,
-			action,
-		});
+		switch (action) {
+			case "back":
+				await invoke("device_back", { serial });
+				break;
+			case "home":
+				await invoke("device_home", { serial });
+				break;
+			case "enter":
+				await invoke("device_enter", { serial });
+				break;
+			default:
+				addLog("warn", `Unknown mirror action: ${action}`);
+				return;
+		}
 		addLog("info", `Mirror control: ${action}`);
 	} catch (error) {
 		addLog("error", `Mirror control failed: ${error}`);
@@ -1321,7 +1363,9 @@ function setupEventListeners(): void {
 	toggleScrcpy?.addEventListener("change", handleScrcpyToggle);
 
 	// Device search
-	const deviceSearch = document.getElementById("device-search") as HTMLInputElement;
+	const deviceSearch = document.getElementById(
+		"device-search",
+	) as HTMLInputElement;
 	deviceSearch?.addEventListener("input", () => {
 		refreshDeviceList([]); // Will re-filter with current search term
 	});
