@@ -246,7 +246,8 @@ impl VideoStream {
                             match bytes_read {
                                 Ok(0) => break,
                                 Ok(n) => {
-                                    if let Err(e) = stream.write_all(&buf[..n]) {
+                                    // Send as WebSocket binary frame
+                                    if let Err(e) = Self::send_ws_frame(&mut stream, 2, &buf[..n]) {
                                         tracing::debug!("Stream write error: {}", e);
                                         break;
                                     }
@@ -345,6 +346,35 @@ impl VideoStream {
 
         let digest = md5::compute(hasher.into_inner());
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, digest.0)
+    }
+
+    /// Send a WebSocket frame
+    /// opcode: 2 = binary, 8 = close
+    fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), String> {
+        let len = payload.len();
+        
+        // Frame header: FIN=1, opcode, mask=0 (server->client), payload length
+        let mut header = Vec::with_capacity(10);
+        header.push(0x80 | opcode); // FIN + opcode
+        
+        if len < 126 {
+            header.push(len as u8);
+        } else if len < 65536 {
+            header.push(126);
+            header.push((len >> 8) as u8);
+            header.push((len & 0xFF) as u8);
+        } else {
+            header.push(127);
+            for i in (0..8).rev() {
+                header.push((len >> (i * 8)) as u8);
+            }
+        }
+        
+        stream.write_all(&header).map_err(|e| e.to_string())?;
+        stream.write_all(payload).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+        
+        Ok(())
     }
 
     /// Stop video stream

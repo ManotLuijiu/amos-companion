@@ -63,7 +63,9 @@ test.describe("AMOS Companion UI", () => {
 		);
 	});
 
-	test("should show placeholder in mirror panel when no device selected", async ({ page }) => {
+	test("should show placeholder in mirror panel when no device selected", async ({
+		page,
+	}) => {
 		await expect(page.locator("#mirror-placeholder")).toContainText(
 			"Select a device to start mirroring",
 		);
