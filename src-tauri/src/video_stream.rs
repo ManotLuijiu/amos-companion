@@ -1,5 +1,5 @@
 //! Video streaming via WebSocket using screenrecord
-//! 
+//!
 //! Implements low-latency screen streaming using:
 //! 1. adb shell screenrecord for h264 capture
 //! 2. WebSocket server for streaming to frontend
@@ -45,13 +45,21 @@ impl VideoStream {
     /// Start video stream using screenrecord
     pub fn start(&mut self) -> Result<u16, String> {
         let adb_path = crate::adb::find_adb();
-        
+
         // 1. Get device screen info first
         let screen_info = self.get_screen_info(&adb_path)?;
-        
+
         // 2. Kill any existing screenrecord
         let _ = Command::new(&adb_path)
-            .args(["-s", &self.serial, "shell", "pkill", "-9", "-f", "screenrecord"])
+            .args([
+                "-s",
+                &self.serial,
+                "shell",
+                "pkill",
+                "-9",
+                "-f",
+                "screenrecord",
+            ])
             .output();
         thread::sleep(Duration::from_millis(100));
 
@@ -61,16 +69,31 @@ impl VideoStream {
 
         // 4. Set up ADB reverse (device → localhost)
         let _ = Command::new(&adb_path)
-            .args(["-s", &self.serial, "reverse", "--remove", &format!("tcp:{}", port)])
+            .args([
+                "-s",
+                &self.serial,
+                "reverse",
+                "--remove",
+                &format!("tcp:{}", port),
+            ])
             .output();
-            
+
         let reverse_out = Command::new(&adb_path)
-            .args(["-s", &self.serial, "reverse", &format!("tcp:{}", port), &format!("tcp:{}", port)])
+            .args([
+                "-s",
+                &self.serial,
+                "reverse",
+                &format!("tcp:{}", port),
+                &format!("tcp:{}", port),
+            ])
             .output();
-            
+
         if let Ok(out) = reverse_out {
             if !out.status.success() {
-                return Err(format!("ADB reverse failed: {}", String::from_utf8_lossy(&out.stderr)));
+                return Err(format!(
+                    "ADB reverse failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
             }
         }
 
@@ -107,10 +130,11 @@ impl VideoStream {
         // 6. Start WebSocket server to stream h264 to browser
         let running = self.running.clone();
         let ws_port = port;
-        
+
         // Wrap stdout in Arc<Mutex<Box<dyn Read + Send>>> for sharing
-        let stdout: Arc<Mutex<Box<dyn Read + Send>>> = Arc::new(Mutex::new(Box::new(stdout) as Box<dyn Read + Send>));
-        
+        let stdout: Arc<Mutex<Box<dyn Read + Send>>> =
+            Arc::new(Mutex::new(Box::new(stdout) as Box<dyn Read + Send>));
+
         // Mark as running
         *running.lock().unwrap() = true;
 
@@ -118,7 +142,7 @@ impl VideoStream {
         let handle = thread::spawn(move || {
             Self::run_ws_server(ws_port, stdout, running);
         });
-        
+
         self.ws_handle = Some(handle);
 
         // Wait a moment for server to start
@@ -136,14 +160,16 @@ impl VideoStream {
             .map_err(|e| e.to_string())?;
 
         let output_str = String::from_utf8_lossy(&output.stdout);
-        
+
         // Parse output like "Physical size: 1080x1920" or "Override size: 1080x1920"
         for line in output_str.lines() {
             if let Some(size) = line.split(':').next_back() {
                 let size = size.trim();
                 let parts: Vec<&str> = size.split('x').collect();
                 if parts.len() == 2 {
-                    if let (Ok(width), Ok(height)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    if let (Ok(width), Ok(height)) =
+                        (parts[0].parse::<u32>(), parts[1].parse::<u32>())
+                    {
                         return Ok((width, height));
                     }
                 }
@@ -159,7 +185,9 @@ impl VideoStream {
             if TcpStream::connect_timeout(
                 &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
                 Duration::from_millis(50),
-            ).is_err() {
+            )
+            .is_err()
+            {
                 return *port;
             }
         }
@@ -173,7 +201,11 @@ impl VideoStream {
     }
 
     /// WebSocket server that wraps the h264 stream
-    fn run_ws_server(port: u16, input: Arc<Mutex<Box<dyn Read + Send>>>, running: Arc<Mutex<bool>>) {
+    fn run_ws_server(
+        port: u16,
+        input: Arc<Mutex<Box<dyn Read + Send>>>,
+        running: Arc<Mutex<bool>>,
+    ) {
         let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
             Ok(l) => l,
             Err(e) => {
@@ -183,25 +215,25 @@ impl VideoStream {
         };
 
         listener.set_nonblocking(true).ok();
-        
+
         // Wait for client connection
         loop {
             if !*running.lock().unwrap() {
                 break;
             }
-            
+
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     info!("WebSocket client connected");
                     let running = running.clone();
                     let input = input.clone();
-                    
+
                     // Simple WebSocket handshake
                     if let Err(e) = Self::ws_handshake(&mut stream) {
                         tracing::error!("WebSocket handshake failed: {}", e);
                         continue;
                     }
-                    
+
                     // Spawn thread to handle this client
                     thread::spawn(move || {
                         let mut buf = [0u8; 65536];
@@ -210,7 +242,7 @@ impl VideoStream {
                                 let mut input_guard = input.lock().unwrap();
                                 input_guard.read(&mut buf)
                             };
-                            
+
                             match bytes_read {
                                 Ok(0) => break,
                                 Ok(n) => {
@@ -247,10 +279,10 @@ impl VideoStream {
     /// Simple WebSocket handshake (HTTP upgrade)
     fn ws_handshake(stream: &mut TcpStream) -> Result<(), String> {
         use std::io::{BufRead, BufReader};
-        
+
         let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
         let mut request = String::new();
-        
+
         // Read HTTP request
         loop {
             let mut line = String::new();
@@ -262,14 +294,15 @@ impl VideoStream {
             }
             request.push_str(&line);
         }
-        
+
         // Check for WebSocket upgrade request
         if !request.contains("Upgrade: websocket") {
             return Err("Not a WebSocket request".to_string());
         }
-        
+
         // Extract Sec-WebSocket-Key
-        let key = request.lines()
+        let key = request
+            .lines()
             .filter_map(|line| {
                 let line = line.to_lowercase();
                 if line.starts_with("sec-websocket-key:") {
@@ -280,10 +313,10 @@ impl VideoStream {
             })
             .next()
             .ok_or("No Sec-WebSocket-Key found")?;
-        
+
         // Generate response key
         let response_key = Self::generate_ws_key(&key);
-        
+
         // Send WebSocket upgrade response
         let response = format!(
             "HTTP/1.1 101 Switching Protocols\r\n\
@@ -293,21 +326,23 @@ impl VideoStream {
             \r\n",
             response_key
         );
-        
-        stream.write_all(response.as_bytes()).map_err(|e| e.to_string())?;
+
+        stream
+            .write_all(response.as_bytes())
+            .map_err(|e| e.to_string())?;
         stream.flush().map_err(|e| e.to_string())?;
-        
+
         Ok(())
     }
 
     /// Generate WebSocket accept key
     fn generate_ws_key(key: &str) -> String {
         use std::io::Write;
-        
+
         let mut hasher = std::io::Cursor::new(Vec::new());
         write!(&mut hasher, "{}", key).ok();
         write!(&mut hasher, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").ok();
-        
+
         let digest = md5::compute(hasher.into_inner());
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, digest.0)
     }
@@ -315,7 +350,7 @@ impl VideoStream {
     /// Stop video stream
     pub fn stop(&mut self) {
         *self.running.lock().unwrap() = false;
-        
+
         // Stop the process
         if let Some(mut child) = self.process.take() {
             let _ = child.kill();
@@ -323,15 +358,29 @@ impl VideoStream {
         }
 
         let adb_path = crate::adb::find_adb();
-        
+
         // Kill screenrecord on device
         let _ = Command::new(&adb_path)
-            .args(["-s", &self.serial, "shell", "pkill", "-9", "-f", "screenrecord"])
+            .args([
+                "-s",
+                &self.serial,
+                "shell",
+                "pkill",
+                "-9",
+                "-f",
+                "screenrecord",
+            ])
             .output();
-            
+
         // Remove reverse
         let _ = Command::new(&adb_path)
-            .args(["-s", &self.serial, "reverse", "--remove", &format!("tcp:{}", self.port)])
+            .args([
+                "-s",
+                &self.serial,
+                "reverse",
+                "--remove",
+                &format!("tcp:{}", self.port),
+            ])
             .output();
 
         info!("Video stream stopped");
@@ -346,7 +395,7 @@ impl VideoStream {
     pub fn get_ws_url(&self) -> String {
         format!("ws://127.0.0.1:{}", self.port)
     }
-    
+
     /// Get screen dimensions
     pub fn get_dimensions(&self) -> (u32, u32) {
         let w = *self.screen_width.lock().unwrap();

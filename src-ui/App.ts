@@ -1190,15 +1190,16 @@ class VideoStream {
 	async start(): Promise<void> {
 		// Get stream info from Rust backend
 		try {
-			const info = await invoke<{ ws_url: string; port: number; running: boolean }>(
-				"start_video_stream",
-				{ serial: this.serial },
-			);
-			
+			const info = await invoke<{
+				ws_url: string;
+				port: number;
+				running: boolean;
+			}>("start_video_stream", { serial: this.serial });
+
 			if (!info.running) {
 				throw new Error("Stream failed to start");
 			}
-			
+
 			this.startWebSocket(info.ws_url);
 		} catch (error) {
 			addLog("error", `Failed to start video stream: ${error}`);
@@ -1208,32 +1209,32 @@ class VideoStream {
 
 	private startWebSocket(wsUrl: string): void {
 		this.running = true;
-		
+
 		// Create canvas for rendering
 		this.canvas = document.createElement("canvas");
 		this.canvas.width = this.width;
 		this.canvas.height = this.height;
 		this.ctx = this.canvas.getContext("2d");
-		
+
 		// Connect WebSocket
 		this.ws = new WebSocket(wsUrl);
-		
+
 		this.ws.binaryType = "arraybuffer";
-		
+
 		this.ws.onopen = () => {
 			addLog("info", "Video stream connected");
 		};
-		
+
 		this.ws.onmessage = (event) => {
 			if (event.data instanceof ArrayBuffer) {
 				this.handleFrame(event.data);
 			}
 		};
-		
+
 		this.ws.onerror = (error) => {
 			addLog("error", `WebSocket error: ${error}`);
 		};
-		
+
 		this.ws.onclose = () => {
 			if (this.running) {
 				addLog("warn", "Video stream disconnected, retrying...");
@@ -1260,16 +1261,16 @@ class VideoStream {
 		if (!this.decoder) {
 			this.initDecoder();
 		}
-		
+
 		if (!this.decoder || !this.canvas || !this.ctx) return;
-		
+
 		try {
 			const chunk = new EncodedVideoChunk({
 				type: "key", // screenrecord sends all keyframes
 				timestamp: Date.now() * 1000,
 				data,
 			});
-			
+
 			this.decoder.decode(chunk);
 		} catch (error) {
 			// If decode fails, try as image
@@ -1279,14 +1280,20 @@ class VideoStream {
 
 	private initDecoder(): void {
 		if (typeof VideoDecoder === "undefined") return;
-		
+
 		this.decoder = new VideoDecoder({
 			output: (frame) => {
 				if (this.canvas && this.ctx) {
 					// Scale and draw frame to canvas
-					this.ctx.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
+					this.ctx.drawImage(
+						frame,
+						0,
+						0,
+						this.canvas.width,
+						this.canvas.height,
+					);
 					frame.close();
-					
+
 					// Update image element
 					this.updateDisplay();
 				}
@@ -1295,7 +1302,7 @@ class VideoStream {
 				addLog("error", `Decoder error: ${error}`);
 			},
 		});
-		
+
 		this.decoder.configure({
 			codec: "avc1.64001f", // H.264 High Profile Level 3.1
 			codedWidth: this.width,
@@ -1309,7 +1316,7 @@ class VideoStream {
 		try {
 			const blob = new Blob([data], { type: "image/png" });
 			const url = URL.createObjectURL(blob);
-			
+
 			const img = new Image();
 			img.onload = () => {
 				if (this.canvas && this.ctx) {
@@ -1325,7 +1332,9 @@ class VideoStream {
 	}
 
 	private updateDisplay(): void {
-		const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+		const mirrorScreen = document.getElementById(
+			"mirror-screen",
+		) as HTMLImageElement;
 		if (mirrorScreen && this.canvas) {
 			mirrorScreen.src = this.canvas.toDataURL("image/png");
 		}
@@ -1333,24 +1342,26 @@ class VideoStream {
 
 	stop(): void {
 		this.running = false;
-		
+
 		if (this.ws) {
 			this.ws.close();
 			this.ws = null;
 		}
-		
+
 		if (this.decoder) {
 			this.decoder.close();
 			this.decoder = null;
 		}
-		
+
 		// Stop Rust backend stream
 		invoke("stop_video_stream").catch(() => {});
 	}
 }
 
 async function startMirror(device: DeviceInfo): Promise<void> {
-	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
@@ -1367,7 +1378,8 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorLoading) mirrorLoading.style.display = "flex";
 	if (mirrorScreen) mirrorScreen.style.display = "none";
 	if (mirrorControls) mirrorControls.style.display = "flex";
-	if (mirrorDeviceName) mirrorDeviceName.textContent = device.model || device.serial;
+	if (mirrorDeviceName)
+		mirrorDeviceName.textContent = device.model || device.serial;
 
 	currentMirroringDevice = device.serial;
 
@@ -1378,34 +1390,37 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	try {
 		videoStream = new VideoStream(device.serial);
 		await videoStream.start();
-		
+
 		if (mirrorScreen) mirrorScreen.style.display = "block";
 		if (mirrorLoading) mirrorLoading.style.display = "none";
 		addLog("info", `Mirror started for ${device.serial}`);
 	} catch (error) {
 		addLog("warn", `Video stream failed, using screenshot fallback: ${error}`);
-		
+
 		// Fallback to screenshot polling
 		await refreshMirrorScreen(device.serial);
-		
+
 		screenshotPollingInterval = setInterval(async () => {
 			if (currentMirroringDevice) {
 				await refreshMirrorScreen(currentMirroringDevice);
 			}
 		}, MIRROR_REFRESH_MS);
-		
+
 		if (mirrorScreen) mirrorScreen.style.display = "block";
 		if (mirrorLoading) mirrorLoading.style.display = "none";
 		addLog("info", `Mirror started (fallback) for ${device.serial}`);
 	}
 
 	// Update device info
-	if (mirrorBattery) mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
+	if (mirrorBattery)
+		mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
 	if (mirrorWifi) mirrorWifi.textContent = "—";
 }
 
 async function refreshMirrorScreen(serial: string): Promise<void> {
-	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
 	if (!mirrorScreen || !currentMirroringDevice) return;
 
 	try {
@@ -1435,7 +1450,9 @@ async function stopMirror(): Promise<void> {
 	}
 
 	// Reset mirror UI
-	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorScreen = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
