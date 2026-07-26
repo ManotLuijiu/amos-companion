@@ -1170,14 +1170,187 @@ async function toggleDeviceMirror(device: DeviceInfo): Promise<void> {
 	}
 }
 
-// Screenshot polling interval for mirror
-let mirrorPollingInterval: ReturnType<typeof setInterval> | null = null;
-const MIRROR_REFRESH_MS = 100; // 10 FPS for MVP
+// Video streaming state
+let videoStream: VideoStream | null = null;
+let screenshotPollingInterval: ReturnType<typeof setInterval> | null = null;
+const MIRROR_REFRESH_MS = 200; // 5 FPS fallback
+
+// WebCodecs-based video player
+class VideoStream {
+	private ws: WebSocket | null = null;
+	private decoder: globalThis.VideoDecoder | null = null;
+	private canvas: HTMLCanvasElement | null = null;
+	private ctx: CanvasRenderingContext2D | null = null;
+	private running = false;
+	private width = 1080;
+	private height = 1920;
+
+	constructor(private serial: string) {}
+
+	async start(): Promise<void> {
+		// Get stream info from Rust backend
+		try {
+			const info = await invoke<{ ws_url: string; port: number; running: boolean }>(
+				"start_video_stream",
+				{ serial: this.serial },
+			);
+			
+			if (!info.running) {
+				throw new Error("Stream failed to start");
+			}
+			
+			this.startWebSocket(info.ws_url);
+		} catch (error) {
+			addLog("error", `Failed to start video stream: ${error}`);
+			throw error;
+		}
+	}
+
+	private startWebSocket(wsUrl: string): void {
+		this.running = true;
+		
+		// Create canvas for rendering
+		this.canvas = document.createElement("canvas");
+		this.canvas.width = this.width;
+		this.canvas.height = this.height;
+		this.ctx = this.canvas.getContext("2d");
+		
+		// Connect WebSocket
+		this.ws = new WebSocket(wsUrl);
+		
+		this.ws.binaryType = "arraybuffer";
+		
+		this.ws.onopen = () => {
+			addLog("info", "Video stream connected");
+		};
+		
+		this.ws.onmessage = (event) => {
+			if (event.data instanceof ArrayBuffer) {
+				this.handleFrame(event.data);
+			}
+		};
+		
+		this.ws.onerror = (error) => {
+			addLog("error", `WebSocket error: ${error}`);
+		};
+		
+		this.ws.onclose = () => {
+			if (this.running) {
+				addLog("warn", "Video stream disconnected, retrying...");
+				setTimeout(() => {
+					if (this.running) {
+						this.startWebSocket(wsUrl);
+					}
+				}, 1000);
+			}
+		};
+	}
+
+	private handleFrame(data: ArrayBuffer): void {
+		// Try WebCodecs first (Chrome 94+)
+		if (typeof VideoDecoder !== "undefined") {
+			this.decodeWithWebCodecs(data);
+		} else {
+			// Fallback: try to display as PNG if possible
+			this.displayAsImage(data);
+		}
+	}
+
+	private async decodeWithWebCodecs(data: ArrayBuffer): Promise<void> {
+		if (!this.decoder) {
+			this.initDecoder();
+		}
+		
+		if (!this.decoder || !this.canvas || !this.ctx) return;
+		
+		try {
+			const chunk = new EncodedVideoChunk({
+				type: "key", // screenrecord sends all keyframes
+				timestamp: Date.now() * 1000,
+				data,
+			});
+			
+			this.decoder.decode(chunk);
+		} catch (error) {
+			// If decode fails, try as image
+			this.displayAsImage(data);
+		}
+	}
+
+	private initDecoder(): void {
+		if (typeof VideoDecoder === "undefined") return;
+		
+		this.decoder = new VideoDecoder({
+			output: (frame) => {
+				if (this.canvas && this.ctx) {
+					// Scale and draw frame to canvas
+					this.ctx.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
+					frame.close();
+					
+					// Update image element
+					this.updateDisplay();
+				}
+			},
+			error: (error) => {
+				addLog("error", `Decoder error: ${error}`);
+			},
+		});
+		
+		this.decoder.configure({
+			codec: "avc1.64001f", // H.264 High Profile Level 3.1
+			codedWidth: this.width,
+			codedHeight: this.height,
+		});
+	}
+
+	private displayAsImage(data: ArrayBuffer): void {
+		// Try to create image from raw data
+		// This is a fallback for when h264 decoding isn't working
+		try {
+			const blob = new Blob([data], { type: "image/png" });
+			const url = URL.createObjectURL(blob);
+			
+			const img = new Image();
+			img.onload = () => {
+				if (this.canvas && this.ctx) {
+					this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+					this.updateDisplay();
+				}
+				URL.revokeObjectURL(url);
+			};
+			img.src = url;
+		} catch {
+			// Silently ignore
+		}
+	}
+
+	private updateDisplay(): void {
+		const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+		if (mirrorScreen && this.canvas) {
+			mirrorScreen.src = this.canvas.toDataURL("image/png");
+		}
+	}
+
+	stop(): void {
+		this.running = false;
+		
+		if (this.ws) {
+			this.ws.close();
+			this.ws = null;
+		}
+		
+		if (this.decoder) {
+			this.decoder.close();
+			this.decoder = null;
+		}
+		
+		// Stop Rust backend stream
+		invoke("stop_video_stream").catch(() => {});
+	}
+}
 
 async function startMirror(device: DeviceInfo): Promise<void> {
-	const mirrorScreen = document.getElementById(
-		"mirror-screen",
-	) as HTMLImageElement;
+	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
@@ -1194,53 +1367,52 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorLoading) mirrorLoading.style.display = "flex";
 	if (mirrorScreen) mirrorScreen.style.display = "none";
 	if (mirrorControls) mirrorControls.style.display = "flex";
-	if (mirrorDeviceName)
-		mirrorDeviceName.textContent = device.model || device.serial;
+	if (mirrorDeviceName) mirrorDeviceName.textContent = device.model || device.serial;
 
 	currentMirroringDevice = device.serial;
 
-	// Get initial screenshot
-	await refreshMirrorScreen(device.serial);
+	// Stop any existing stream
+	stopMirror();
 
-	// Start polling for screenshots
-	if (mirrorPollingInterval) {
-		clearInterval(mirrorPollingInterval);
+	// Try WebSocket video streaming
+	try {
+		videoStream = new VideoStream(device.serial);
+		await videoStream.start();
+		
+		if (mirrorScreen) mirrorScreen.style.display = "block";
+		if (mirrorLoading) mirrorLoading.style.display = "none";
+		addLog("info", `Mirror started for ${device.serial}`);
+	} catch (error) {
+		addLog("warn", `Video stream failed, using screenshot fallback: ${error}`);
+		
+		// Fallback to screenshot polling
+		await refreshMirrorScreen(device.serial);
+		
+		screenshotPollingInterval = setInterval(async () => {
+			if (currentMirroringDevice) {
+				await refreshMirrorScreen(currentMirroringDevice);
+			}
+		}, MIRROR_REFRESH_MS);
+		
+		if (mirrorScreen) mirrorScreen.style.display = "block";
+		if (mirrorLoading) mirrorLoading.style.display = "none";
+		addLog("info", `Mirror started (fallback) for ${device.serial}`);
 	}
-	mirrorPollingInterval = setInterval(async () => {
-		if (currentMirroringDevice) {
-			await refreshMirrorScreen(currentMirroringDevice);
-		}
-	}, MIRROR_REFRESH_MS);
-
-	if (mirrorScreen) {
-		mirrorScreen.style.display = "block";
-	}
-	if (mirrorLoading) mirrorLoading.style.display = "none";
 
 	// Update device info
-	if (mirrorBattery)
-		mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
+	if (mirrorBattery) mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
 	if (mirrorWifi) mirrorWifi.textContent = "—";
-
-	addLog("info", `Mirror started for ${device.serial}`);
 }
 
 async function refreshMirrorScreen(serial: string): Promise<void> {
-	const mirrorScreen = document.getElementById(
-		"mirror-screen",
-	) as HTMLImageElement;
+	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
 	if (!mirrorScreen || !currentMirroringDevice) return;
 
 	try {
-		// Get screenshot as base64 PNG
-		const base64 = await invoke<string>("capture_screenshot", {
-			serial,
-		});
-
-		// Update image source
+		const base64 = await invoke<string>("capture_screenshot", { serial });
 		mirrorScreen.src = `data:image/png;base64,${base64}`;
-	} catch (error) {
-		// Silently ignore polling errors to avoid log spam
+	} catch {
+		// Silently ignore
 	}
 }
 
@@ -1250,16 +1422,20 @@ async function stopMirror(): Promise<void> {
 	const deviceSerial = currentMirroringDevice;
 	addLog("info", `Stopping mirror for ${deviceSerial}...`);
 
+	// Stop video stream
+	if (videoStream) {
+		videoStream.stop();
+		videoStream = null;
+	}
+
 	// Stop polling
-	if (mirrorPollingInterval) {
-		clearInterval(mirrorPollingInterval);
-		mirrorPollingInterval = null;
+	if (screenshotPollingInterval) {
+		clearInterval(screenshotPollingInterval);
+		screenshotPollingInterval = null;
 	}
 
 	// Reset mirror UI
-	const mirrorScreen = document.getElementById(
-		"mirror-screen",
-	) as HTMLImageElement;
+	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
 	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
 	const mirrorLoading = document.getElementById("mirror-loading");
 	const mirrorControls = document.getElementById("mirror-controls");
