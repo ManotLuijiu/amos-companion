@@ -133,6 +133,49 @@ async fn get_user_info(state: tauri::State<'_, AppState>) -> Result<Option<(Stri
 }
 
 #[tauri::command]
+async fn sign_in_manual(
+    state: tauri::State<'_, AppState>,
+    api_url: String,
+    user_id: String,
+) -> Result<(), String> {
+    info!("Manual sign-in for user {}", user_id);
+    
+    // Save to config without email verification
+    let mut config = state.config_store.lock().await;
+    config.set_api_url(api_url);
+    config.set_user_id(Some(user_id));
+    config.set_user_email(Some("OAuth User".to_string()));
+    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+    
+    info!("Manual sign-in successful");
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    info!("Opening URL: {}", url);
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+    
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+    
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &url])
+        .spawn()
+        .map_err(|e| format!("Failed to open URL: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
 async fn start_agent(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -425,9 +468,11 @@ pub fn run() {
             stop_agent,
             save_config,
             open_web_ui,
+            open_url,
             install_device_agent,
             get_device_agent_status,
             sign_in,
+            sign_in_manual,
             get_user_info,
             get_devices,
             get_device_info,
