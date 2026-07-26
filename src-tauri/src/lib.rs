@@ -176,6 +176,150 @@ async fn open_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn sign_in_oauth(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    api_url: String,
+) -> Result<(), String> {
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+    
+    info!("Starting OAuth flow for user login...");
+    
+    // Generate a random port for the callback server
+    let port: u16 = 48923; // Fixed port for AMOS Companion OAuth
+    
+    // Create a channel to receive the auth result
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(String, String), String>>();
+    
+    // Start a local HTTP server to receive the OAuth callback
+    let server_tx = tx.clone();
+    let _server = thread::spawn(move || {
+        let addr = format!("127.0.0.1:{}", port);
+        let listener = match TcpListener::bind(&addr) {
+            Ok(l) => l,
+            Err(e) => {
+                server_tx.send(Err(format!("Failed to bind to port {}: {}", port, e))).ok();
+                return;
+            }
+        };
+        
+        // Set a timeout so we don't hang forever
+        listener.set_nonblocking(true).ok();
+        
+        // Accept connection with timeout
+        let mut attempts = 0;
+        while attempts < 100 {
+            thread::sleep(Duration::from_millis(100));
+            attempts += 1;
+            
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let mut buffer = [0u8; 1024];
+                if stream.read(&mut buffer).is_ok() {
+                    let request = String::from_utf8_lossy(&buffer);
+                    
+                    // Parse the callback URL from the request
+                    // Format: GET /callback?user_id=xxx&email=xxx HTTP/1.1
+                    if let Some(query_start) = request.find("/callback?") {
+                        let query = &request[query_start + 10..];
+                        let params: Vec<&str> = query.split('&').collect();
+                        
+                        let mut user_id = String::new();
+                        let mut email = String::new();
+                        
+                        for param in params {
+                            if param.starts_with("user_id=") {
+                                user_id = param[8..].split_whitespace().next().unwrap_or("").to_string();
+                                user_id = percent_encoding::percent_decode_str(&user_id).decode_utf8_lossy().to_string();
+                            } else if param.starts_with("email=") {
+                                email = param[6..].split_whitespace().next().unwrap_or("").to_string();
+                                email = percent_encoding::percent_decode_str(&email).decode_utf8_lossy().to_string();
+                            }
+                        }
+                        
+                        // Send success response
+                        let response = "HTTP/1.1 200 OK\r\n\r\n<!DOCTYPE html><html><head><title>AMOS Companion</title></head><body><h1>Login Successful!</h1><p>You can close this window and return to AMOS Companion.</p><script>window.close();</script></body></html>";
+                        stream.write_all(response.as_bytes()).ok();
+                        
+                        if !user_id.is_empty() {
+                            server_tx.send(Ok((user_id.clone(), email.clone()))).ok();
+                        } else {
+                            server_tx.send(Err("No user_id in callback".to_string())).ok();
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    });
+    
+    // Open the OAuth URL in the browser
+    // Convert API URL to frontend URL
+    let frontend_url = api_url
+        .replace("://api.", "://app.")
+        .replace("/api", "");
+    let oauth_url = format!(
+        "{}/api/auth/sign-in/oauth/google?callback=http://127.0.0.1:{}",
+        frontend_url, port
+    );
+    
+    info!("Opening OAuth URL: {}", oauth_url);
+    
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(&oauth_url)
+        .spawn()
+        .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
+    
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(&oauth_url)
+        .spawn()
+        .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
+    
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &oauth_url])
+        .spawn()
+        .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
+    
+    // Wait for the callback (with timeout)
+    info!("Waiting for OAuth callback...");
+    let result = rx.recv_timeout(Duration::from_secs(120));
+    
+    match result {
+        Ok(Ok((user_id, email))) => {
+            info!("OAuth successful: user_id={}, email={}", user_id, email);
+            
+            // Save user info to config
+            let mut config = state.config_store.lock().await;
+            config.set_api_url(api_url);
+            config.set_user_id(Some(user_id.clone()));
+            config.set_user_email(Some(email.clone()));
+            config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+            
+            // Emit login success event to frontend
+            app.emit("login-success", serde_json::json!({
+                "user_id": user_id,
+                "email": email
+            })).map_err(|e| format!("Failed to emit event: {}", e))?;
+            
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            error!("OAuth failed: {}", e);
+            Err(e)
+        }
+        Err(_) => {
+            error!("OAuth timeout");
+            Err("OAuth login timed out. Please try again.".to_string())
+        }
+    }
+}
+
+#[tauri::command]
 async fn start_agent(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -472,6 +616,7 @@ pub fn run() {
             install_device_agent,
             get_device_agent_status,
             sign_in,
+            sign_in_oauth,
             sign_in_manual,
             get_user_info,
             get_devices,

@@ -289,46 +289,39 @@ async function handleGoogleLogin(): Promise<void> {
 	) as HTMLInputElement;
 	const apiUrl = apiUrlInput?.value || "https://api.amos.moo-vpn.online";
 	const errorDiv = document.getElementById("login-error") as HTMLDivElement;
+	const googleBtn = document.querySelector(".btn-google") as HTMLButtonElement;
 
 	try {
-		// Convert API URL to frontend URL
-		// e.g., https://api.amos.moo-vpn.online -> https://app.amos.moo-vpn.online
-		const frontendUrl = apiUrl
-			.replace("://api.", "://app.")
-			.replace("/api", "");
-		const signInUrl = `${frontendUrl}/sign-in?callback=companion`;
-		await invoke("open_url", { url: signInUrl });
-
-		addLog(
-			"info",
-			"Please sign in with Google in the browser, then return here.",
-		);
-
-		// Prompt user to enter the session token or user ID manually
-		const userIdInput = prompt(
-			"After signing in with Google, your User ID will be shown on the AMOS dashboard.\nPaste it here:",
-		);
-
-		if (userIdInput && userIdInput.trim()) {
-			const userId = userIdInput.trim();
-			await invoke("sign_in_manual", { apiUrl, userId });
-
-			userInfo = { id: userId, email: "Google User" };
-
-			const loginSection = document.getElementById("login-section");
-			const mainContent = document.getElementById("main-content");
-			if (loginSection) loginSection.style.display = "none";
-			if (mainContent) mainContent.style.display = "block";
-
-			addLog("info", `Signed in with Google (User ID: ${userId})`);
-			await refreshStatus();
+		if (googleBtn) {
+			googleBtn.disabled = true;
+			googleBtn.textContent = "Opening browser...";
 		}
+
+		addLog("info", "Starting Google OAuth login...");
+
+		// Use the new OAuth flow with local callback server
+		await invoke("sign_in_oauth", { apiUrl });
+
+
+		userInfo = { id: "", email: "" };
+
+		const loginSection = document.getElementById("login-section");
+		const mainContent = document.getElementById("main-content");
+		if (loginSection) loginSection.style.display = "none";
+		if (mainContent) mainContent.style.display = "block";
+
+		addLog("info", `Signed in successfully!`);
+		await refreshStatus();
 	} catch (e) {
 		const errorMsg = e instanceof Error ? e.message : String(e);
 		addLog("error", `Google sign-in failed: ${errorMsg}`);
 		if (errorDiv) {
 			errorDiv.textContent = errorMsg;
 			errorDiv.style.display = "block";
+		}
+		if (googleBtn) {
+			googleBtn.disabled = false;
+			googleBtn.textContent = "Sign in with Google";
 		}
 	}
 }
@@ -347,7 +340,9 @@ async function handleLogin(event: Event): Promise<void> {
 	) as HTMLButtonElement;
 
 	// Get API URL from the input outside the form
-	const apiUrlInput = document.getElementById("login-api-url") as HTMLInputElement;
+	const apiUrlInput = document.getElementById(
+		"login-api-url",
+	) as HTMLInputElement;
 	const apiUrl = apiUrlInput?.value || "https://api.amos.moo-vpn.online";
 	const email = emailInput.value;
 	const password = passwordInput.value;
