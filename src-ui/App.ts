@@ -308,7 +308,7 @@ async function handleGoogleLogin(): Promise<void> {
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
-		if (mainContent) mainContent.style.display = "block";
+		
 
 		addLog("info", `Signed in successfully!`);
 		await refreshStatus();
@@ -358,7 +358,7 @@ async function handleLogin(event: Event): Promise<void> {
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
-		if (mainContent) mainContent.style.display = "block";
+		
 
 		addLog("info", `Signed in as ${email}`);
 
@@ -1417,6 +1417,9 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorWifi) mirrorWifi.textContent = "—";
 }
 
+let screenshotErrorCount = 0;
+const MAX_SCREENSHOT_ERRORS = 3;
+
 async function refreshMirrorScreen(serial: string): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
@@ -1426,8 +1429,13 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	try {
 		const base64 = await invoke<string>("capture_screenshot", { serial });
 		mirrorScreen.src = `data:image/png;base64,${base64}`;
-	} catch {
-		// Silently ignore
+		screenshotErrorCount = 0; // Reset error count on success
+	} catch (error) {
+		screenshotErrorCount++;
+		if (screenshotErrorCount >= MAX_SCREENSHOT_ERRORS) {
+			addLog("error", "Device screenshot failed, stopping mirror. Check USB debugging authorization.");
+			stopMirror();
+		}
 	}
 }
 
@@ -1613,7 +1621,7 @@ export async function init(): Promise<void> {
 			const loginSection = document.getElementById("login-section");
 			const mainContent = document.getElementById("main-content");
 			if (loginSection) loginSection.style.display = "none";
-			if (mainContent) mainContent.style.display = "block";
+			
 		} else {
 			addLog("info", "Please sign in to continue");
 			const loginSection = document.getElementById("login-section");

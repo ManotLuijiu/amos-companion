@@ -231,11 +231,11 @@ jobs:
             --region auto \
             | grep '_aarch64.dmg\|_x86_64.dmg' \
             | awk '{print $4}')
-          
+
           # Count files
           FILE_COUNT=$(echo "$FILES" | grep -c '.')
           echo "Found $FILE_COUNT macOS DMG files"
-          
+
           # Keep only last 3, delete rest
           if [ "$FILE_COUNT" -gt 3 ]; then
             TO_DELETE=$(echo "$FILES" | head -n -3)
@@ -258,10 +258,10 @@ jobs:
             --region auto \
             | grep '.AppImage' \
             | awk '{print $4}')
-          
+
           FILE_COUNT=$(echo "$FILES" | grep -c '.')
           echo "Found $FILE_COUNT Linux AppImage files"
-          
+
           if [ "$FILE_COUNT" -gt 3 ]; then
             TO_DELETE=$(echo "$FILES" | head -n -3)
             for f in $TO_DELETE; do
@@ -283,10 +283,10 @@ jobs:
             --region auto \
             | grep '.exe' \
             | awk '{print $4}')
-          
+
           FILE_COUNT=$(echo "$FILES" | grep -c '.')
           echo "Found $FILE_COUNT Windows EXE files"
-          
+
           if [ "$FILE_COUNT" -gt 3 ]; then
             TO_DELETE=$(echo "$FILES" | head -n -3)
             for f in $TO_DELETE; do
