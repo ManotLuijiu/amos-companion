@@ -55,9 +55,9 @@ let state: AgentStatus = {
 let display: StatusDisplay = "loading";
 let selectedDevice: DeviceInfo | null = null;
 let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
-let scrcpyEnabled = false;
+const __scrcpyEnabled = false;
 let scrcpyAvailable = false;
-let deviceAgentInstalled = false;
+const __deviceAgentInstalled = false;
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
@@ -306,7 +306,7 @@ async function handleGoogleLogin(): Promise<void> {
 		userInfo = { id: "", email: "" };
 
 		const loginSection = document.getElementById("login-section");
-		const mainContent = document.getElementById("main-content");
+		const _mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
 
 		addLog("info", `Signed in successfully!`);
@@ -355,7 +355,7 @@ async function handleLogin(event: Event): Promise<void> {
 		userInfo = { id: "", email };
 
 		const loginSection = document.getElementById("login-section");
-		const mainContent = document.getElementById("main-content");
+		const _mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
 
 		addLog("info", `Signed in as ${email}`);
@@ -940,7 +940,7 @@ async function handleScrcpyToggle(): Promise<void> {
 		}
 		try {
 			await invoke("start_scrcpy", { serial: selectedDevice.serial });
-			scrcpyEnabled = true;
+			_scrcpyEnabled = true;
 			addLog("info", `scrcpy started - check new window!`);
 		} catch (err) {
 			addLog("error", `Failed to start scrcpy: ${err}`);
@@ -949,7 +949,7 @@ async function handleScrcpyToggle(): Promise<void> {
 	} else {
 		try {
 			await invoke("stop_scrcpy");
-			scrcpyEnabled = false;
+			_scrcpyEnabled = false;
 			addLog("info", "scrcpy stopped");
 		} catch (err) {
 			addLog("error", `Failed to stop scrcpy: ${err}`);
@@ -1632,14 +1632,14 @@ export async function init(): Promise<void> {
 			userInfo = { id: user[0], email: user[1] };
 			addLog("info", `Logged in as ${userInfo.email}`);
 			const loginSection = document.getElementById("login-section");
-			const mainContent = document.getElementById("main-content");
+			const _mainContent = document.getElementById("main-content");
 			if (loginSection) loginSection.style.display = "none";
 		} else {
 			addLog("info", "Please sign in to continue");
 			const loginSection = document.getElementById("login-section");
-			const mainContent = document.getElementById("main-content");
+			const _mainContent = document.getElementById("main-content");
 			if (loginSection) loginSection.style.display = "flex";
-			if (mainContent) mainContent.style.display = "none";
+			if (_mainContent) _mainContent.style.display = "none";
 		}
 	} catch (e) {
 		addLog("warn", `Could not check login status: ${e}`);
@@ -1650,6 +1650,18 @@ export async function init(): Promise<void> {
 		state = event.payload;
 		addLog("debug", `Status update received: running=${state.agent_running}`);
 		refreshUI();
+	});
+
+	// Listen for login success event from OAuth flow
+	await listen<{ user_id: string; email: string }>("login-success", (event) => {
+		userInfo = { id: event.payload.user_id, email: event.payload.email };
+		addLog("info", `Signed in successfully as ${userInfo.email}!`);
+		const loginSection = document.getElementById("login-section");
+		const _mainContent = document.getElementById("main-content");
+		if (loginSection) loginSection.style.display = "none";
+		if (_mainContent) _mainContent.style.display = "flex";
+		// Refresh status to update device list
+		refreshStatus();
 	});
 
 	// Initial status fetch
@@ -1681,7 +1693,7 @@ export async function init(): Promise<void> {
 			path: string;
 			os: string;
 		}>("get_device_agent_status");
-		deviceAgentInstalled = agentStatus.installed;
+		_deviceAgentInstalled = agentStatus.installed;
 		addLog(
 			"info",
 			`Device agent ${agentStatus.installed ? "installed" : "not found"} (${agentStatus.os})`,
