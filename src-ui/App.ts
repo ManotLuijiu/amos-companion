@@ -198,7 +198,7 @@ function buildLoginSection(): HTMLElement {
 	const apiUrlInput = document.createElement("input");
 	apiUrlInput.type = "url";
 	apiUrlInput.id = "login-api-url";
-	apiUrlInput.placeholder = "https://api.amos.moo-vpn.online";
+	apiUrlInput.placeholder = "https://amos-api.moo-vpn.online";
 	apiUrlInput.required = true;
 
 	// Divider
@@ -287,7 +287,7 @@ async function handleGoogleLogin(): Promise<void> {
 	const apiUrlInput = document.getElementById(
 		"login-api-url",
 	) as HTMLInputElement;
-	const apiUrl = apiUrlInput?.value || "https://api.amos.moo-vpn.online";
+	const apiUrl = apiUrlInput?.value || "https://amos-api.moo-vpn.online";
 	const errorDiv = document.getElementById("login-error") as HTMLDivElement;
 	const googleBtn = document.querySelector(".btn-google") as HTMLButtonElement;
 
@@ -342,7 +342,7 @@ async function handleLogin(event: Event): Promise<void> {
 	const apiUrlInput = document.getElementById(
 		"login-api-url",
 	) as HTMLInputElement;
-	const apiUrl = apiUrlInput?.value || "https://api.amos.moo-vpn.online";
+	const apiUrl = apiUrlInput?.value || "https://amos-api.moo-vpn.online";
 	const email = emailInput.value;
 	const password = passwordInput.value;
 
@@ -536,7 +536,7 @@ function buildMainContent(): HTMLElement {
 	settingsBody.innerHTML = `
 		<div class="setting-item">
 			<label class="setting-label">AMOS API URL</label>
-			<input type="url" class="setting-input" id="api-url" placeholder="https://api.amos.moo-vpn.online" />
+			<input type="url" class="setting-input" id="api-url" placeholder="https://amos-api.moo-vpn.online" />
 		</div>
 		<div class="setting-item">
 			<label class="setting-label">
