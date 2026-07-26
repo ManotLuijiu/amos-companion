@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 /**
  * E2E Tests for AMOS Companion UI
- * 
+ *
  * These tests verify the core UI elements are present.
  * Note: Full app tests (device control, mirroring) require Tauri app running.
  */
@@ -58,6 +58,8 @@ test.describe("AMOS Companion UI", () => {
 	});
 
 	test("should display footer", async ({ page }) => {
-		await expect(page.locator(".app-footer")).toContainText("AMOS Device Management");
+		await expect(page.locator(".app-footer")).toContainText(
+			"AMOS Device Management",
+		);
 	});
 });

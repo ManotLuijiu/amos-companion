@@ -804,28 +804,19 @@ async function handleDeviceClick(device: DeviceInfo): Promise<void> {
 	addLog("info", `Opening control for: ${device.model} (${device.serial})`);
 	selectedDevice = device;
 
-	// Show device control panel
-	const controlCard = document.getElementById("device-control-card");
-	const deviceName = document.getElementById("control-device-name");
-	if (controlCard) controlCard.style.display = "block";
-	if (deviceName) deviceName.textContent = device.model;
-
-	// Start screenshot refresh
-	await refreshScreenshot();
-	if (screenshotRefreshInterval) clearInterval(screenshotRefreshInterval);
-	screenshotRefreshInterval = setInterval(refreshScreenshot, 1000);
-
-	// Get device info
-	try {
-		const info = await invoke<DeviceInfo>("get_device_info", {
-			serial: device.serial,
-		});
-		const infoBar = document.getElementById("device-info-bar");
-		if (infoBar)
-			infoBar.textContent = `${info.resolution || "Unknown"} | Battery: ${info.battery ?? "N/A"}%`;
-	} catch (err) {
-		addLog("warn", `Could not get device info: ${err}`);
+	// If scrcpy is enabled, start scrcpy for this device
+	if (scrcpyEnabled) {
+		try {
+			await invoke("start_scrcpy", { serial: device.serial });
+			addLog("info", `scrcpy started for ${device.model} - check your Dock!`);
+		} catch (err) {
+			addLog("error", `Failed to start scrcpy: ${err}`);
+		}
+		return;
 	}
+
+	// Otherwise, start built-in mirroring
+	await startMirror(device);
 }
 
 function closeDevicePanel(): void {
