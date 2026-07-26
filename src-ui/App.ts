@@ -59,6 +59,7 @@ let scrcpyEnabled = false;
 let scrcpyAvailable = false;
 let deviceAgentInstalled = false;
 let userInfo: { id: string; email: string } | null = null;
+let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
 const maxLogs = 500;
 
@@ -420,28 +421,72 @@ function buildMainContent(): HTMLElement {
 	main.className = "app-main";
 	main.id = "main-content";
 
-	// Left Panel - Controls
+	// ============================================
+	// LEFT PANEL - Agent & Devices (340px)
+	// ============================================
 	const leftPanel = document.createElement("div");
 	leftPanel.className = "panel panel-left";
 
 	// Agent Status Card
-	const agentCard = document.createElement("div");
-	agentCard.className = "card";
-	agentCard.id = "agent-card";
+	const agentCard = createAgentCard();
+	leftPanel.appendChild(agentCard);
 
-	const agentHeader = document.createElement("div");
-	agentHeader.className = "card-header";
-	agentHeader.innerHTML = `
+	// Device List Card with Search
+	const deviceCard = createDeviceCard();
+	leftPanel.appendChild(deviceCard);
+
+	// Settings Card
+	const settingsCard = createSettingsCard();
+	leftPanel.appendChild(settingsCard);
+
+	main.appendChild(leftPanel);
+
+	// ============================================
+	// MIDDLE PANEL - Mirror (340px)
+	// ============================================
+	const mirrorPanel = document.createElement("div");
+	mirrorPanel.className = "panel panel-mirror";
+
+	const mirrorCard = createMirrorCard();
+	mirrorPanel.appendChild(mirrorCard);
+
+	main.appendChild(mirrorPanel);
+
+	// ============================================
+	// RIGHT PANEL - Activity Logs (flex)
+	// ============================================
+	const rightPanel = document.createElement("div");
+	rightPanel.className = "panel panel-right";
+
+	const logCard = createLogCard();
+	rightPanel.appendChild(logCard);
+
+	main.appendChild(rightPanel);
+
+	return main;
+}
+
+/**
+ * Create Agent Status Card
+ */
+function createAgentCard(): HTMLElement {
+	const card = document.createElement("div");
+	card.className = "card";
+	card.id = "agent-card";
+
+	const header = document.createElement("div");
+	header.className = "card-header";
+	header.innerHTML = `
 		<div class="card-title">
 			<span class="card-icon">🎯</span>
 			Agent Status
 		</div>
 	`;
-	agentCard.appendChild(agentHeader);
+	card.appendChild(header);
 
-	const agentBody = document.createElement("div");
-	agentBody.className = "card-body";
-	agentBody.innerHTML = `
+	const body = document.createElement("div");
+	body.className = "card-body";
+	body.innerHTML = `
 		<div class="status-display">
 			<div class="status-indicator-large" id="status-indicator-large"></div>
 			<div class="status-info">
@@ -464,9 +509,8 @@ function buildMainContent(): HTMLElement {
 			</div>
 		</div>
 	`;
-	agentCard.appendChild(agentBody);
+	card.appendChild(body);
 
-	// Action Buttons
 	const actions = document.createElement("div");
 	actions.className = "card-actions";
 	actions.innerHTML = `
@@ -479,61 +523,73 @@ function buildMainContent(): HTMLElement {
 			Stop Agent
 		</button>
 	`;
-	agentCard.appendChild(actions);
+	card.appendChild(actions);
 
-	leftPanel.appendChild(agentCard);
+	return card;
+}
 
-	// Device List Card
-	const deviceCard = document.createElement("div");
-	deviceCard.className = "card";
+/**
+ * Create Device List Card with Search
+ */
+function createDeviceCard(): HTMLElement {
+	const card = document.createElement("div");
+	card.className = "card";
 
-	const deviceHeader = document.createElement("div");
-	deviceHeader.className = "card-header";
-	deviceHeader.innerHTML = `
+	const header = document.createElement("div");
+	header.className = "card-header";
+	header.innerHTML = `
 		<div class="card-title">
 			<span class="card-icon">📱</span>
-			Connected Devices
+			Devices
 		</div>
 		<span class="badge badge-info" id="device-count">0</span>
 	`;
-	deviceCard.appendChild(deviceHeader);
+	card.appendChild(header);
 
-	const deviceList = document.createElement("div");
-	deviceList.className = "device-list-container";
-	deviceList.id = "device-list-container";
-	deviceList.innerHTML = `
-		<ul class="device-list" id="device-list">
-			<li class="device-empty" id="device-empty">
-				<span class="empty-icon">📲</span>
-				<span>No devices connected</span>
-			</li>
-		</ul>
+	const body = document.createElement("div");
+	body.className = "card-body";
+	body.style.padding = "12px";
+	body.innerHTML = `
+		<div class="device-search-container" style="margin-bottom: 12px;">
+			<input type="text" id="device-search" class="setting-input" 
+				placeholder="🔍 Search devices..." style="width: 100%;" />
+		</div>
+		<div class="device-list-container" id="device-list-container">
+			<ul class="device-list" id="device-list">
+				<li class="device-empty" id="device-empty">
+					<span class="empty-icon">📲</span>
+					<span>No devices connected</span>
+				</li>
+			</ul>
+		</div>
 	`;
-	deviceCard.appendChild(deviceList);
+	card.appendChild(body);
 
-	leftPanel.appendChild(deviceCard);
+	return card;
+}
 
-	// Settings Card
-	const settingsCard = document.createElement("div");
-	settingsCard.className = "card";
+/**
+ * Create Settings Card
+ */
+function createSettingsCard(): HTMLElement {
+	const card = document.createElement("div");
+	card.className = "card";
 
-	const settingsHeader = document.createElement("div");
-	settingsHeader.className = "card-header collapsible";
-	settingsHeader.innerHTML = `
+	const header = document.createElement("div");
+	header.className = "card-header collapsible";
+	header.innerHTML = `
 		<div class="card-title">
 			<span class="card-icon">⚙️</span>
 			Settings
 		</div>
 		<span class="collapse-icon">▼</span>
 	`;
-	settingsHeader.onclick = () => {
-		settingsCard.classList.toggle("collapsed");
-	};
-	settingsCard.appendChild(settingsHeader);
+	header.onclick = () => card.classList.toggle("collapsed");
+	card.appendChild(header);
 
-	const settingsBody = document.createElement("div");
-	settingsBody.className = "card-body";
-	settingsBody.innerHTML = `
+	const body = document.createElement("div");
+	body.className = "card-body";
+	body.innerHTML = `
 		<div class="setting-item">
 			<label class="setting-label">AMOS API URL</label>
 			<input type="url" class="setting-input" id="api-url" placeholder="https://amos-api.moo-vpn.online" />
@@ -546,84 +602,126 @@ function buildMainContent(): HTMLElement {
 			<div class="toggle-container">
 				<input type="checkbox" id="toggle-scrcpy" class="toggle-input" />
 				<label for="toggle-scrcpy" class="toggle-label"></label>
-				<span class="toggle-text" id="toggle-scrcpy-text">Requires scrcpy (brew install scrcpy)</span>
+				<span class="toggle-text" id="toggle-scrcpy-text">Requires scrcpy</span>
 			</div>
 		</div>
 		<button class="btn btn-secondary btn-full" id="btn-open-web">
 			🌐 Open AMOS Web UI
 		</button>
 	`;
-	settingsCard.appendChild(settingsBody);
+	card.appendChild(body);
 
-	leftPanel.appendChild(settingsCard);
+	return card;
+}
 
-	// Device Control Panel (hidden by default)
-	const deviceControlCard = document.createElement("div");
-	deviceControlCard.className = "card";
-	deviceControlCard.id = "device-control-card";
-	deviceControlCard.style.display = "none";
+/**
+ * Create Mirror Card (new dedicated panel)
+ */
+function createMirrorCard(): HTMLElement {
+	const card = document.createElement("div");
+	card.className = "mirror-card";
+	card.id = "mirror-card";
 
-	const controlHeader = document.createElement("div");
-	controlHeader.className = "card-header";
-	controlHeader.innerHTML = `
-		<div class="card-title">
-			<span class="card-icon">📱</span>
-			<span id="control-device-name">Device Control</span>
+	const header = document.createElement("div");
+	header.className = "mirror-header";
+	header.innerHTML = `
+		<div class="mirror-title">
+			<span>📺</span>
+			<span class="device-name" id="mirror-device-name">Screen Mirror</span>
 		</div>
-		<button class="btn btn-small btn-ghost" id="btn-close-control">✕</button>
+		<button class="mirror-close" id="btn-close-mirror" title="Close mirror">✕</button>
 	`;
-	deviceControlCard.appendChild(controlHeader);
+	card.appendChild(header);
 
-	const controlBody = document.createElement("div");
-	controlBody.className = "card-body";
-	controlBody.innerHTML = `
-		<div class="screen-viewer" id="screen-viewer">
-			<img id="device-screen" alt="Device Screen" />
-			<div class="screen-loading" id="screen-loading">Loading...</div>
+	const screenContainer = document.createElement("div");
+	screenContainer.className = "mirror-screen-container";
+	screenContainer.id = "mirror-screen-container";
+	screenContainer.innerHTML = `
+		<div class="mirror-screen-placeholder" id="mirror-placeholder">
+			<span class="icon">📱</span>
+			<span class="text">Select a device to start mirroring</span>
 		</div>
-		<div class="control-buttons">
-			<button class="btn btn-secondary" id="btn-tap">⬅ Back</button>
-			<button class="btn btn-secondary" id="btn-home">🏠 Home</button>
-			<button class="btn btn-secondary" id="btn-enter">↵ Enter</button>
+		<div class="mirror-loading" id="mirror-loading" style="display: none;">
+			<div class="spinner"></div>
+			<span>Connecting to device...</span>
 		</div>
-		<div class="device-info-bar" id="device-info-bar"></div>
+		<img class="mirror-screen" id="mirror-screen" style="display: none;" alt="Device Screen" />
 	`;
-	deviceControlCard.appendChild(controlBody);
+	card.appendChild(screenContainer);
 
-	leftPanel.appendChild(deviceControlCard);
+	const controls = document.createElement("div");
+	controls.className = "mirror-controls";
+	controls.id = "mirror-controls";
+	controls.style.display = "none";
+	controls.innerHTML = `
+		<button class="btn btn-secondary" id="btn-mirror-back" title="Back">⬅</button>
+		<button class="btn btn-secondary" id="btn-mirror-home" title="Home">🏠</button>
+		<button class="btn btn-secondary" id="btn-mirror-enter" title="Enter">↵</button>
+		<button class="btn btn-secondary" id="btn-mirror-power" title="Power">⏻</button>
+	`;
+	card.appendChild(controls);
 
-	// Right Panel - Logs
-	const rightPanel = document.createElement("div");
-	rightPanel.className = "panel panel-right";
+	const status = document.createElement("div");
+	status.className = "mirror-status";
+	status.id = "mirror-status";
+	status.innerHTML = `
+		<div class="status-item">
+			<span>●</span>
+			<span id="mirror-battery">—</span>
+		</div>
+		<div class="status-item">
+			<span>📶</span>
+			<span id="mirror-wifi">—</span>
+		</div>
+	`;
+	card.appendChild(status);
 
-	const logCard = document.createElement("div");
-	logCard.className = "card card-logs";
+	return card;
+}
 
-	const logHeader = document.createElement("div");
-	logHeader.className = "card-header";
-	logHeader.innerHTML = `
+/**
+ * Create Log Card
+ */
+function createLogCard(): HTMLElement {
+	const card = document.createElement("div");
+	card.className = "card card-logs";
+	card.style.height = "100%";
+
+	const header = document.createElement("div");
+	header.className = "card-header";
+	header.innerHTML = `
 		<div class="card-title">
 			<span class="card-icon">📋</span>
 			Activity Logs
 		</div>
 		<div class="log-controls">
+			<select id="log-filter" class="log-filter-select" style="
+				background: var(--bg-tertiary);
+				border: 1px solid var(--border-color);
+				color: var(--text-primary);
+				padding: 4px 8px;
+				border-radius: 6px;
+				font-size: 11px;
+			">
+				<option value="all">All</option>
+				<option value="info">Info</option>
+				<option value="warn">Warning</option>
+				<option value="error">Error</option>
+			</select>
+			<button class="btn btn-small btn-ghost" id="btn-export-logs" title="Export logs">📤</button>
 			<button class="btn btn-small btn-ghost" id="btn-clear-logs" title="Clear logs">🗑️</button>
 		</div>
 	`;
-	logCard.appendChild(logHeader);
+	card.appendChild(header);
 
-	const logBody = document.createElement("div");
-	logBody.className = "log-container";
-	logBody.id = "log-container";
-	logBody.innerHTML = `<div class="log-content" id="log-content"></div>`;
-	logCard.appendChild(logBody);
+	const body = document.createElement("div");
+	body.className = "log-container";
+	body.id = "log-container";
+	body.style.flex = "1";
+	body.innerHTML = `<div class="log-content" id="log-content"></div>`;
+	card.appendChild(body);
 
-	rightPanel.appendChild(logCard);
-
-	main.appendChild(leftPanel);
-	main.appendChild(rightPanel);
-
-	return main;
+	return card;
 }
 
 function buildFooter(): HTMLElement {
@@ -990,8 +1088,20 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 	const list = document.getElementById("device-list");
 	const empty = document.getElementById("device-empty");
 	const count = document.getElementById("device-count");
+	const searchInput = document.getElementById("device-search") as HTMLInputElement;
+	const searchTerm = searchInput?.value?.toLowerCase() ?? "";
 
-	if (count) count.textContent = devices.length.toString();
+	// Filter devices by search term
+	const filteredDevices = searchTerm
+		? devices.filter(
+				(d) =>
+					d.model?.toLowerCase().includes(searchTerm) ||
+					d.serial?.toLowerCase().includes(searchTerm) ||
+					d.status?.toLowerCase().includes(searchTerm),
+			)
+		: devices;
+
+	if (count) count.textContent = `${filteredDevices.length}/${devices.length}`;
 
 	if (!list) return;
 
@@ -999,25 +1109,158 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 	const items = list.querySelectorAll(".device-item");
 	items.forEach((item) => item.remove());
 
-	if (devices.length === 0) {
-		if (empty) empty.style.display = "flex";
+	if (filteredDevices.length === 0) {
+		if (empty) {
+			empty.style.display = "flex";
+			const emptySpan = empty.querySelector("span:last-child");
+			if (emptySpan) {
+				emptySpan.textContent = searchTerm
+					? "No devices match your search"
+					: "No devices connected";
+			}
+		}
 	} else {
 		if (empty) empty.style.display = "none";
 
-		devices.forEach((device) => {
+		filteredDevices.forEach((device) => {
 			const li = document.createElement("li");
-			li.className = "device-item";
+			li.className = `device-item ${device.status === "connected" ? "device-online" : "device-offline"}`;
+			const isMirroring = currentMirroringDevice === device.serial;
 			li.innerHTML = `
-				<span class="device-icon">📱</span>
+				<span class="device-icon">${device.status === "connected" ? "●" : "○"}</span>
 				<div class="device-info">
-					<span class="device-name">${device.model}</span>
+					<span class="device-name">${device.model || "Unknown Device"}</span>
 					<span class="device-serial">${device.serial}</span>
 				</div>
-				<span class="device-status status-${device.status}">${device.status}</span>
+				<div class="device-actions">
+					<button class="btn btn-small ${isMirroring ? "btn-primary" : "btn-secondary"} btn-mirror" 
+						title="${isMirroring ? "Stop mirroring" : "Start mirroring"}" 
+						data-device="${device.serial}">
+						${isMirroring ? "■" : "👁️"}
+					</button>
+				</div>
 			`;
-			li.onclick = () => handleDeviceClick(device);
+			// Device click - select device
+			li.onclick = (e) => {
+				const target = e.target as HTMLElement;
+				if (target.classList.contains("btn-mirror")) {
+					e.stopPropagation();
+					toggleDeviceMirror(device);
+				} else {
+					handleDeviceClick(device);
+				}
+			};
 			list.appendChild(li);
 		});
+	}
+}
+
+// ─── Mirror Functions ──────────────────────────────────────────────────────────
+
+async function toggleDeviceMirror(device: DeviceInfo): Promise<void> {
+	if (currentMirroringDevice === device.serial) {
+		// Stop mirroring
+		await stopMirror();
+	} else {
+		// Start mirroring
+		await startMirror(device);
+	}
+}
+
+async function startMirror(device: DeviceInfo): Promise<void> {
+	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
+	const mirrorLoading = document.getElementById("mirror-loading");
+	const mirrorControls = document.getElementById("mirror-controls");
+	const mirrorDeviceName = document.getElementById("mirror-device-name");
+	const mirrorBattery = document.getElementById("mirror-battery");
+	const mirrorWifi = document.getElementById("mirror-wifi");
+
+	if (!mirrorScreen) return;
+
+	addLog("info", `Starting mirror for ${device.model || device.serial}...`);
+
+	// Show loading
+	if (mirrorPlaceholder) mirrorPlaceholder.style.display = "none";
+	if (mirrorLoading) mirrorLoading.style.display = "flex";
+	if (mirrorScreen) mirrorScreen.style.display = "none";
+	if (mirrorControls) mirrorControls.style.display = "flex";
+	if (mirrorDeviceName) mirrorDeviceName.textContent = device.model || device.serial;
+
+	currentMirroringDevice = device.serial;
+
+	try {
+		// Start mirror via Tauri command
+		const imageUrl = await invoke<string>("start_mirror", {
+			deviceId: device.serial,
+		});
+
+		if (mirrorScreen) {
+			mirrorScreen.src = imageUrl;
+			mirrorScreen.style.display = "block";
+		}
+		if (mirrorLoading) mirrorLoading.style.display = "none";
+
+		// Update device info
+		if (mirrorBattery) mirrorBattery.textContent = device.battery ? `${device.battery}%` : "—";
+		if (mirrorWifi) mirrorWifi.textContent = "—";
+
+		addLog("info", `Mirror started for ${device.serial}`);
+
+		// Refresh device list to update button state
+		refreshDeviceList([]);
+	} catch (error) {
+		addLog("error", `Failed to start mirror: ${error}`);
+		if (mirrorLoading) mirrorLoading.style.display = "none";
+		if (mirrorPlaceholder) mirrorPlaceholder.style.display = "flex";
+		currentMirroringDevice = null;
+	}
+}
+
+async function stopMirror(): Promise<void> {
+	if (!currentMirroringDevice) return;
+
+	const deviceSerial = currentMirroringDevice;
+	addLog("info", `Stopping mirror for ${deviceSerial}...`);
+
+	try {
+		await invoke("stop_mirror", { deviceId: deviceSerial });
+		addLog("info", `Mirror stopped for ${deviceSerial}`);
+	} catch (error) {
+		addLog("error", `Failed to stop mirror: ${error}`);
+	}
+
+	// Reset mirror UI
+	const mirrorScreen = document.getElementById("mirror-screen") as HTMLImageElement;
+	const mirrorPlaceholder = document.getElementById("mirror-placeholder");
+	const mirrorLoading = document.getElementById("mirror-loading");
+	const mirrorControls = document.getElementById("mirror-controls");
+
+	if (mirrorScreen) {
+		mirrorScreen.src = "";
+		mirrorScreen.style.display = "none";
+	}
+	if (mirrorPlaceholder) mirrorPlaceholder.style.display = "flex";
+	if (mirrorLoading) mirrorLoading.style.display = "none";
+	if (mirrorControls) mirrorControls.style.display = "none";
+
+	currentMirroringDevice = null;
+
+	// Refresh device list to update button state
+	refreshDeviceList([]);
+}
+
+async function handleMirrorControl(action: string): Promise<void> {
+	if (!currentMirroringDevice) return;
+
+	try {
+		await invoke("mirror_control", {
+			deviceId: currentMirroringDevice,
+			action,
+		});
+		addLog("info", `Mirror control: ${action}`);
+	} catch (error) {
+		addLog("error", `Mirror control failed: ${error}`);
 	}
 }
 
@@ -1076,6 +1319,38 @@ function setupEventListeners(): void {
 		"toggle-scrcpy",
 	) as HTMLInputElement;
 	toggleScrcpy?.addEventListener("change", handleScrcpyToggle);
+
+	// Device search
+	const deviceSearch = document.getElementById("device-search") as HTMLInputElement;
+	deviceSearch?.addEventListener("input", () => {
+		refreshDeviceList([]); // Will re-filter with current search term
+	});
+
+	// Mirror controls
+	const btnCloseMirror = document.getElementById("btn-close-mirror");
+	btnCloseMirror?.addEventListener("click", () => {
+		stopMirror();
+	});
+
+	const btnMirrorBack = document.getElementById("btn-mirror-back");
+	btnMirrorBack?.addEventListener("click", () => {
+		handleMirrorControl("back");
+	});
+
+	const btnMirrorHome = document.getElementById("btn-mirror-home");
+	btnMirrorHome?.addEventListener("click", () => {
+		handleMirrorControl("home");
+	});
+
+	const btnMirrorEnter = document.getElementById("btn-mirror-enter");
+	btnMirrorEnter?.addEventListener("click", () => {
+		handleMirrorControl("enter");
+	});
+
+	const btnMirrorPower = document.getElementById("btn-mirror-power");
+	btnMirrorPower?.addEventListener("click", () => {
+		handleMirrorControl("power");
+	});
 }
 
 // ─── Entry ───────────────────────────────────────────────────────────────────
