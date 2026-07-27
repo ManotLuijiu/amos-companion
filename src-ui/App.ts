@@ -1008,7 +1008,7 @@ function handlePointerUp(event: PointerEvent): void {
 			y1: pointerStartY,
 			x2: endX,
 			y2: endY,
-			durationMs: SWIPE_DURATION_MS,
+			duration_ms: SWIPE_DURATION_MS,
 		})
 			.then(() =>
 				addLog(
@@ -1034,7 +1034,7 @@ function handlePointerCancel(event: PointerEvent): void {
 			y1: pointerStartY,
 			x2: lastPointerX,
 			y2: lastPointerY,
-			durationMs: SWIPE_DURATION_MS,
+			duration_ms: SWIPE_DURATION_MS,
 		})
 			.then(() =>
 				addLog(
