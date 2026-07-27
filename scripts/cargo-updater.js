@@ -3,7 +3,7 @@
 
 module.exports = {
 	parse(version) {
-		const match = version.match(/^version = "([^"]+)"$/);
+		const match = version.match(/^version = "([^"]+)"(?:\s+#.*)?$/);
 		if (match) {
 			return {
 				version: match[1],

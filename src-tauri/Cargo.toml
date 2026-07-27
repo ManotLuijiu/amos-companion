@@ -1,6 +1,6 @@
 [package]
 name = "amos-companion"
-version = "0.0.0"  # Updated by scripts/update-version.ts
+version = "1.0.24"                                                              # Synced from package.json
 description = "AMOS Companion — connect Android devices to AMOS with one click"
 authors = ["AMOS"]
 edition = "2021"

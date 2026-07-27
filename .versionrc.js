@@ -23,6 +23,10 @@ export default {
 			type: "toml",
 			updater: require("./scripts/cargo-updater.js"),
 		},
+		{
+			filename: "src-tauri/tauri.conf.json",
+			type: "json",
+		},
 	],
 	packageFiles: ["package.json"],
 	bumpInChangelog: "package.json",
@@ -31,6 +35,5 @@ export default {
 		"https://github.com/ManotLuijiu/amos-companion/commit/{{hash}}",
 	compareUrlFormat:
 		"https://github.com/ManotLuijiu/amos-companion/compare/{{previousTag}}...{{currentTag}}",
-	issueUrlFormat:
-		"https://github.com/ManotLiuJiu/amos-companion/issues/{{id}}",
+	issueUrlFormat: "https://github.com/ManotLiuJiu/amos-companion/issues/{{id}}",
 };

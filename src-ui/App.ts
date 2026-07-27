@@ -4,6 +4,8 @@ import { TrayIcon } from "@tauri-apps/api/tray";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+declare const __APP_VERSION__: string;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AgentStatus {
@@ -45,7 +47,7 @@ let state: AgentStatus = {
 	agent_running: false,
 	connected_devices: [],
 	platform: "",
-	companion_version: "0.1.0",
+	companion_version: __APP_VERSION__,
 	adb_version: "",
 	api_url: "",
 	agent_pid: null,
@@ -62,6 +64,14 @@ let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
 const maxLogs = 500;
+
+function getCompanionVersionLabel(): string {
+	const version =
+		state.companion_version && state.companion_version !== "0.0.0"
+			? state.companion_version
+			: __APP_VERSION__;
+	return `v${version}`;
+}
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -383,7 +393,7 @@ function buildHeader(): HTMLElement {
 
 	const logo = document.createElement("img");
 	logo.className = "header-logo";
-	logo.src = "amos-logo.png";
+	logo.src = "./amos-logo.png";
 	logo.alt = "AMOS Logo";
 
 	const titleGroup = document.createElement("div");
@@ -395,7 +405,8 @@ function buildHeader(): HTMLElement {
 
 	const version = document.createElement("span");
 	version.className = "header-version";
-	version.textContent = `v${state.companion_version}`;
+	version.id = "header-version";
+	version.textContent = getCompanionVersionLabel();
 
 	titleGroup.appendChild(title);
 	titleGroup.appendChild(version);
@@ -992,6 +1003,11 @@ function computeDisplay(): StatusDisplay {
 }
 
 function refreshUI(): void {
+	const headerVersion = document.getElementById("header-version");
+	if (headerVersion) {
+		headerVersion.textContent = getCompanionVersionLabel();
+	}
+
 	// Status badge
 	const statusBadge = document.getElementById("status-badge");
 	if (statusBadge) {

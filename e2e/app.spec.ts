@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
+
+const { version: packageVersion } = JSON.parse(
+	readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 /**
  * E2E Tests for AMOS Companion UI
@@ -18,7 +23,20 @@ test.describe("AMOS Companion UI", () => {
 
 	test("should display header with logo and title", async ({ page }) => {
 		await expect(page.locator(".header-title")).toContainText("AMOS Companion");
-		await expect(page.locator(".header-logo")).toBeVisible();
+
+		const logo = page.locator(".header-logo");
+		await expect(logo).toBeVisible();
+		expect(
+			await logo.evaluate((img) => (img as HTMLImageElement).naturalWidth > 0),
+		).toBeTruthy();
+	});
+
+	test("should display the current package version in the header", async ({
+		page,
+	}) => {
+		await expect(page.locator(".header-version")).toHaveText(
+			`v${packageVersion}`,
+		);
 	});
 
 	test("should show login section or main content", async ({ page }) => {
