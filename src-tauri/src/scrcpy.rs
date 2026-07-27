@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info};
 
@@ -81,6 +82,8 @@ impl ScrcpyStream {
 
         info!("Starting scrcpy stream for device: {}", self.serial);
 
+        let window_title = format!("AMOS - {}", self.serial);
+
         // scrcpy with video output to stdout, we'll pipe it
         // Use tcpip for forwarding if needed, direct USB otherwise
         let mut cmd = Command::new(&scrcpy_path);
@@ -88,7 +91,7 @@ impl ScrcpyStream {
             "-s",
             &self.serial,
             "--window-title",
-            &format!("AMOS - {}", self.serial),
+            &window_title,
             "--always-on-top",
             "--stay-awake",
             "--turn-screen-off",
@@ -108,12 +111,44 @@ impl ScrcpyStream {
                 self.process = Some(child);
                 self.active = true;
                 info!("scrcpy started successfully for {}", self.serial);
+
+                // Try to focus the scrcpy window on macOS
+                self.try_focus_window(&window_title);
+
                 Ok(())
             }
             Err(e) => {
                 error!("Failed to start scrcpy: {}", e);
                 Err(format!("Failed to start scrcpy: {}", e))
             }
+        }
+    }
+
+    /// Try to bring the scrcpy window to front on macOS using AppleScript
+    fn try_focus_window(&self, window_title: &str) {
+        #[cfg(target_os = "macos")]
+        {
+            // Give scrcpy a moment to create the window
+            let title = window_title.to_string();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(500));
+                // Use AppleScript to bring the scrcpy window to front
+                // Try to focus scrcpy process window by its PID
+                let script = format!(
+                    r#"
+tell application "System Events"
+    set frontmost of every process whose unix id is (do shell script "pgrep -x scrcpy | head -1") to true
+end tell
+"#
+                );
+                let _ = Command::new("osascript").arg("-e").arg(&script).output();
+            });
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = window_title; // silence unused warning
+            let _ = self;
         }
     }
 

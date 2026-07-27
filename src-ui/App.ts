@@ -819,7 +819,10 @@ async function handleDeviceClick(device: DeviceInfo): Promise<void> {
 	if (scrcpyEnabled) {
 		try {
 			await invoke("start_scrcpy", { serial: device.serial });
-			addLog("info", `scrcpy started for ${device.model} - check your Dock!`);
+			addLog(
+				"info",
+				`scrcpy launched for ${device.model} - scrcpy window should appear (check Dock on macOS)`,
+			);
 		} catch (err) {
 			addLog("error", `Failed to start scrcpy: ${err}`);
 		}
@@ -943,7 +946,10 @@ async function handleScrcpyToggle(): Promise<void> {
 		try {
 			await invoke("start_scrcpy", { serial: selectedDevice.serial });
 			scrcpyEnabled = true;
-			addLog("info", `scrcpy started - check new window!`);
+			addLog(
+				"info",
+				`scrcpy launched - scrcpy window should appear (check Dock on macOS)`,
+			);
 		} catch (err) {
 			addLog("error", `Failed to start scrcpy: ${err}`);
 			toggle.checked = false;
@@ -1393,7 +1399,26 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 
 	addLog("info", `Starting mirror for ${device.model || device.serial}...`);
 
-	// Show loading
+	// Always clear existing polling and video stream first (even for same device)
+	// This prevents interval stacking if user clicks same device again
+	if (videoStream) {
+		videoStream.stop();
+		videoStream = null;
+	}
+	if (screenshotPollingInterval) {
+		clearInterval(screenshotPollingInterval);
+		screenshotPollingInterval = null;
+	}
+
+	// Stop any existing mirror session if it's a different device
+	// Don't clear currentMirroringDevice here - we need it for same-device restarts
+	const isSameDevice = currentMirroringDevice === device.serial;
+	if (currentMirroringDevice && !isSameDevice) {
+		addLog("info", `Stopping previous mirror for ${currentMirroringDevice}...`);
+		await stopMirrorInternal(); // Internal stop that doesn't show log
+	}
+
+	// Show loading state
 	if (mirrorPlaceholder) mirrorPlaceholder.style.display = "none";
 	if (mirrorLoading) mirrorLoading.style.display = "flex";
 	if (mirrorScreen) mirrorScreen.style.display = "none";
@@ -1401,10 +1426,8 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorDeviceName)
 		mirrorDeviceName.textContent = device.model || device.serial;
 
+	// Set the device AFTER clearing old session
 	currentMirroringDevice = device.serial;
-
-	// Stop any existing stream
-	stopMirror();
 
 	// Start screenshot polling (WebSocket streaming disabled due to macOS sandbox issues)
 	addLog("info", `Starting screenshot mirror for ${device.serial}...`);
@@ -1453,11 +1476,14 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	}
 }
 
-async function stopMirror(): Promise<void> {
+/**
+ * Internal stopMirror that resets state and UI but doesn't log
+ * (used when switching between devices)
+ */
+async function stopMirrorInternal(): Promise<void> {
 	if (!currentMirroringDevice) return;
 
 	const deviceSerial = currentMirroringDevice;
-	addLog("info", `Stopping mirror for ${deviceSerial}...`);
 
 	// Stop video stream
 	if (videoStream) {
@@ -1488,6 +1514,16 @@ async function stopMirror(): Promise<void> {
 	if (mirrorControls) mirrorControls.style.display = "none";
 
 	currentMirroringDevice = null;
+}
+
+async function stopMirror(): Promise<void> {
+	if (!currentMirroringDevice) return;
+
+	const deviceSerial = currentMirroringDevice;
+	addLog("info", `Stopping mirror for ${deviceSerial}...`);
+
+	// Use internal stop (no logging)
+	await stopMirrorInternal();
 
 	addLog("info", `Mirror stopped for ${deviceSerial}`);
 
@@ -1649,6 +1685,7 @@ export async function init(): Promise<void> {
 	// Listen for status updates from Rust backend
 	await listen<AgentStatus>("status-update", (event) => {
 		state = event.payload;
+		display = computeDisplay(); // Recompute display state from new status
 		addLog("debug", `Status update received: running=${state.agent_running}`);
 		refreshUI();
 	});

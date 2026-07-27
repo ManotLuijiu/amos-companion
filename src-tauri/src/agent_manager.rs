@@ -27,11 +27,19 @@ impl AgentManager {
     }
 
     /// Returns true if the agent process is currently running.
+    /// Process is running if try_wait() returns Ok(None) (no exit status yet).
+    /// Process has exited if try_wait() returns Ok(Some(exit_status)).
     pub fn is_running(&mut self) -> bool {
         self.process
             .as_mut()
             .map(|p| p.try_wait().ok().flatten().is_none())
             .unwrap_or(false)
+    }
+
+    /// Returns true if the agent process has exited (has an exit status).
+    /// This is the inverse of is_running() - used to check for immediate exit.
+    fn has_exited(&mut self) -> bool {
+        !self.is_running()
     }
 
     /// Start the `uv run python -m amos_device_agent` process.
@@ -166,15 +174,19 @@ impl AgentManager {
 
         // Brief wait then check if still running
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        if !self.is_running() {
+        if self.has_exited() {
             // Process exited immediately - check logs
             let log_content = std::fs::read_to_string(&stderr_file)
                 .unwrap_or_else(|_| "Could not read log".to_string());
             let stdout_content = std::fs::read_to_string(&stdout_file)
                 .unwrap_or_else(|_| "Could not read stdout log".to_string());
             error!("Agent process exited immediately! stderr: {}, stdout: {}", log_content, stdout_content);
-            self.error_message = Some(format!("Agent exited: check logs at {:?}", stderr_file));
-            // Don't return error yet - let the status show it
+            self.error_message = Some(format!("Agent exited immediately: check logs at {:?}", stderr_file));
+            // Clear the process since it exited
+            self.process = None;
+            self.pid = None;
+            // Return an error so frontend knows startup failed
+            return Err(AgentError::StartupFailed(log_content));
         } else {
             info!("Agent process is running");
         }
@@ -317,4 +329,7 @@ pub enum AgentError {
 
     #[error("Agent is not running")]
     NotRunning,
+
+    #[error("Agent exited immediately after startup: {0}")]
+    StartupFailed(String),
 }
