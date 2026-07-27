@@ -6,7 +6,8 @@ use tokio::process::{Child, Command};
 use tracing::{error, info, warn};
 
 pub struct AgentManager {
-    /// Currently running device-agent process, if any.
+    /// Currently running device-agent process.
+    /// We track the actual Python agent process directly.
     process: Option<Child>,
     /// OS process ID of the running agent.
     pid: Option<u32>,
@@ -27,8 +28,7 @@ impl AgentManager {
     }
 
     /// Returns true if the agent process is currently running.
-    /// Process is running if try_wait() returns Ok(None) (no exit status yet).
-    /// Process has exited if try_wait() returns Ok(Some(exit_status)).
+    /// Checks the actual child process status directly.
     pub fn is_running(&mut self) -> bool {
         self.process
             .as_mut()
@@ -36,13 +36,8 @@ impl AgentManager {
             .unwrap_or(false)
     }
 
-    /// Returns true if the agent process has exited (has an exit status).
-    /// This is the inverse of is_running() - used to check for immediate exit.
-    fn has_exited(&mut self) -> bool {
-        !self.is_running()
-    }
-
-    /// Start the `uv run python -m amos_device_agent` process.
+    /// Start the device-agent process.
+    /// We spawn Python directly (not via `uv run`) so tokio's Child tracks the actual agent.
     pub async fn start(
         &mut self,
         api_url: &str,
@@ -87,29 +82,15 @@ impl AgentManager {
             agent_cwd
         );
 
-        info!("Checking if uv is available...");
-        let uv_check = Command::new("sh")
-            .arg("-c")
-            .arg("which uv")
-            .output()
-            .await;
-        match &uv_check {
-            Ok(out) => info!("uv path check: {}", String::from_utf8_lossy(&out.stdout)),
-            Err(e) => warn!("uv check failed: {}", e),
-        }
-
-        // Clone for both uses since command takes ownership
-        let agent_cwd_clone = agent_cwd.clone();
-
-        // Try uv first; fall back to python3 if uv is not available
-        let mut cmd = Command::new("uv");
-        cmd.arg("run")
-            .arg("python")
-            .arg("-m")
+        // Spawn Python directly so tokio's Child tracks the actual agent process.
+        // We avoid `uv run` because it launches a wrapper that exits while the
+        // actual Python agent continues - we need to track the real agent.
+        let mut cmd = Command::new("python3");
+        cmd.arg("-m")
             .arg("amos_device_agent")
             .env("AMOS_API_URL", api_url)
             .env("AMOS_AGENT_ID", agent_id)
-            .current_dir(agent_cwd_clone)
+            .current_dir(&agent_cwd)
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
 
@@ -124,40 +105,11 @@ impl AgentManager {
             cmd.env("AMOS_WORKSPACE_ID", ws_id);
         }
 
-        info!("Attempting to spawn device-agent via uv...");
+        info!("Attempting to spawn device-agent via python3...");
         let child = match cmd.spawn() {
             Ok(c) => {
-                info!("Successfully spawned via uv!");
+                info!("Device-agent spawned successfully");
                 c
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                warn!("uv not found, falling back to python3");
-                let mut fallback = Command::new("python3");
-                fallback
-                    .arg("-m")
-                    .arg("amos_device_agent")
-                    .env("AMOS_API_URL", api_url)
-                    .env("AMOS_AGENT_ID", agent_id)
-                    .current_dir(agent_cwd)
-                    .stdout(Stdio::from(
-                        std::fs::File::create(&stdout_file)
-                            .map_err(|e| AgentError::SpawnFailed(format!("stdout: {}", e)))?,
-                    ))
-                    .stderr(Stdio::from(
-                        std::fs::File::create(&stderr_file)
-                            .map_err(|e| AgentError::SpawnFailed(format!("stderr: {}", e)))?,
-                    ));
-                // Add optional device-agent auth credentials
-                if let Some(key) = &device_key {
-                    fallback.env("AMOS_API_KEY", key);
-                }
-                if let Some(secret) = &device_secret {
-                    fallback.env("AMOS_API_SECRET", secret);
-                }
-                if let Some(ref ws_id) = workspace_id {
-                    fallback.env("AMOS_WORKSPACE_ID", ws_id);
-                }
-                fallback.spawn().map_err(|e| AgentError::SpawnFailed(e.to_string()))?
             }
             Err(e) => {
                 error!("Failed to spawn: {:?}", e);
@@ -172,23 +124,21 @@ impl AgentManager {
         self.pid = pid;
         self.process = Some(child);
 
-        // Brief wait then check if still running
+        // Brief wait then check if process is still running
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        if self.has_exited() {
+        if self.is_running() {
+            info!("Agent process is running");
+        } else {
             // Process exited immediately - check logs
             let log_content = std::fs::read_to_string(&stderr_file)
                 .unwrap_or_else(|_| "Could not read log".to_string());
             let stdout_content = std::fs::read_to_string(&stdout_file)
                 .unwrap_or_else(|_| "Could not read stdout log".to_string());
             error!("Agent process exited immediately! stderr: {}, stdout: {}", log_content, stdout_content);
-            self.error_message = Some(format!("Agent exited immediately: check logs at {:?}", stderr_file));
-            // Clear the process since it exited
+            self.error_message = Some(format!("Agent exited: check logs at {:?}", stderr_file));
             self.process = None;
             self.pid = None;
-            // Return an error so frontend knows startup failed
             return Err(AgentError::StartupFailed(log_content));
-        } else {
-            info!("Agent process is running");
         }
 
         Ok(())
@@ -201,6 +151,7 @@ impl AgentManager {
             let _ = child.kill().await;
             let _ = child.wait().await;
             self.pid = None;
+            self.process = None;
             info!("Device-agent stopped");
         }
     }

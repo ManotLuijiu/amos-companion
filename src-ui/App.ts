@@ -1601,9 +1601,9 @@ function setupEventListeners(): void {
 	const btnEnter = document.getElementById("btn-enter");
 	btnEnter?.addEventListener("click", handleControlEnter);
 
-	// Screen tap handler
-	const screenImg = document.getElementById("device-screen");
-	screenImg?.addEventListener("click", (e: Event) =>
+	// Screen tap handler for built-in mirror
+	const mirrorScreen = document.getElementById("mirror-screen");
+	mirrorScreen?.addEventListener("click", (e: Event) =>
 		handleScreenTap(e as MouseEvent),
 	);
 
