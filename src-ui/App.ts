@@ -881,7 +881,7 @@ async function refreshScreenshot(): Promise<void> {
 	if (loading) loading.style.display = "none";
 }
 
-async function handleScreenTap(event: MouseEvent): Promise<void> {
+async function handleScreenTap(event: PointerEvent): Promise<void> {
 	if (!currentMirroringDevice) return;
 
 	const mirrorScreen = document.getElementById(
@@ -889,15 +889,54 @@ async function handleScreenTap(event: MouseEvent): Promise<void> {
 	) as HTMLImageElement;
 	if (!mirrorScreen || !mirrorScreen.naturalWidth) return;
 
-	const rect = mirrorScreen.getBoundingClientRect();
-	const scaleX = mirrorScreen.naturalWidth / rect.width;
-	const scaleY = mirrorScreen.naturalHeight / rect.height;
-	const x = Math.round((event.clientX - rect.left) * scaleX);
-	const y = Math.round((event.clientY - rect.top) * scaleY);
+	// Calculate the actual displayed image rect accounting for object-fit: contain
+	// The image is letterboxed to fit within the container
+	const container = mirrorScreen.parentElement;
+	if (!container) return;
+
+	const containerRect = container.getBoundingClientRect();
+	const imgWidth = mirrorScreen.naturalWidth;
+	const imgHeight = mirrorScreen.naturalHeight;
+	const containerWidth = containerRect.width;
+	const containerHeight = containerRect.height;
+
+	// Calculate scale and offsets for object-fit: contain
+	const scaleToFit = Math.min(
+		containerWidth / imgWidth,
+		containerHeight / imgHeight,
+	);
+	const displayedWidth = imgWidth * scaleToFit;
+	const displayedHeight = imgHeight * scaleToFit;
+
+	// Calculate the letterbox/pillarbox offsets (centered)
+	const offsetX = (containerWidth - displayedWidth) / 2;
+	const offsetY = (containerHeight - displayedHeight) / 2;
+
+	// Check if click is within the visible image area
+	const clickX = event.clientX - containerRect.left;
+	const clickY = event.clientY - containerRect.top;
+
+	if (
+		clickX < offsetX ||
+		clickX > offsetX + displayedWidth ||
+		clickY < offsetY ||
+		clickY > offsetY + displayedHeight
+	) {
+		// Click is in letterbox area, ignore
+		return;
+	}
+
+	// Convert click coordinates to image coordinates
+	const imageX = (clickX - offsetX) / scaleToFit;
+	const imageY = (clickY - offsetY) / scaleToFit;
 
 	try {
-		await invoke("device_tap", { serial: currentMirroringDevice, x, y });
-		addLog("debug", `Tap: ${x},${y}`);
+		await invoke("device_tap", {
+			serial: currentMirroringDevice,
+			x: Math.round(imageX),
+			y: Math.round(imageY),
+		});
+		addLog("debug", `Tap: ${Math.round(imageX)},${Math.round(imageY)}`);
 	} catch (err) {
 		addLog("error", `Tap failed: ${err}`);
 	}
@@ -1601,10 +1640,10 @@ function setupEventListeners(): void {
 	const btnEnter = document.getElementById("btn-enter");
 	btnEnter?.addEventListener("click", handleControlEnter);
 
-	// Screen tap handler for built-in mirror
+	// Screen tap handler for built-in mirror - use pointerdown for reliability during refresh
 	const mirrorScreen = document.getElementById("mirror-screen");
-	mirrorScreen?.addEventListener("click", (e: Event) =>
-		handleScreenTap(e as MouseEvent),
+	mirrorScreen?.addEventListener("pointerdown", (e: Event) =>
+		handleScreenTap(e as PointerEvent),
 	);
 
 	// scrcpy toggle

@@ -13,7 +13,7 @@ const tauriConfigPath = resolve(rootDir, "src-tauri", "tauri.conf.json");
 const version = readFileSync(versionFile, "utf8").trim();
 
 if (!version) {
-  throw new Error("version.txt is empty");
+	throw new Error("version.txt is empty");
 }
 
 console.log(`Updating version to: ${version}`);
@@ -21,9 +21,9 @@ console.log(`Updating version to: ${version}`);
 // Update package.json
 let packageJson;
 try {
-  packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+	packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 } catch {
-  throw new Error(`Failed to parse ${packageJsonPath}`);
+	throw new Error(`Failed to parse ${packageJsonPath}`);
 }
 packageJson.version = version;
 writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + "\n");
@@ -32,8 +32,8 @@ console.log(`Updated package.json to ${version}`);
 // Update Cargo.toml
 const cargoToml = readFileSync(cargoTomlPath, "utf8");
 const updatedCargoToml = cargoToml.replace(
-  /^version = ".*?"(?:\s+#.*)?$/m,
-  `version = "${version}"  # Synced from package.json`
+	/^version = ".*?"(?:\s+#.*)?$/m,
+	`version = "${version}"  # Synced from package.json`,
 );
 writeFileSync(cargoTomlPath, updatedCargoToml);
 console.log(`Updated Cargo.toml to ${version}`);
@@ -41,9 +41,9 @@ console.log(`Updated Cargo.toml to ${version}`);
 // Update tauri.conf.json
 let tauriConfig;
 try {
-  tauriConfig = JSON.parse(readFileSync(tauriConfigPath, "utf8"));
+	tauriConfig = JSON.parse(readFileSync(tauriConfigPath, "utf8"));
 } catch {
-  throw new Error(`Failed to parse ${tauriConfigPath}`);
+	throw new Error(`Failed to parse ${tauriConfigPath}`);
 }
 tauriConfig.version = version;
 writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`);
