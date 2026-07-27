@@ -76,7 +76,54 @@ pub fn capture_screenshot(serial: &str) -> Result<String, String> {
             info!("Screenshot via exec-out: {} bytes", out.stdout.len());
             out.stdout
         }
-        _ => {
+        Ok(out) => {
+            tracing::error!("Screenshot exec-out failed: status={}, stdout_len={}, stderr={}",
+                out.status, out.stdout.len(), String::from_utf8_lossy(&out.stderr));
+            // Fallback: use temp file method
+            let _ = std::fs::remove_file(&temp_path);
+
+            let capture_result = Command::new(&adb_path)
+                .args(["-s", serial, "shell", "screencap", "-p", "/sdcard/amos_screen.png"])
+                .output();
+
+            match capture_result {
+                Ok(cr) if cr.status.success() => {
+                    let pull_result = Command::new(&adb_path)
+                        .args(["-s", serial, "pull", "/sdcard/amos_screen.png", temp_path.to_str().unwrap_or("/tmp/amos_screen.png")])
+                        .output();
+
+                    match pull_result {
+                        Ok(pr) if pr.status.success() => {
+                            let data = std::fs::read(&temp_path).unwrap_or_default();
+                            let _ = Command::new(&adb_path)
+                                .args(["-s", serial, "shell", "rm", "/sdcard/amos_screen.png"])
+                                .output();
+                            let _ = std::fs::remove_file(&temp_path);
+                            
+                            if data.is_empty() {
+                                return Err("Screenshot data is empty".to_string());
+                            }
+                            info!("Screenshot via pull: {} bytes", data.len());
+                            data
+                        }
+                        Ok(pr) => {
+                            return Err(format!("Failed to pull screenshot: {}", String::from_utf8_lossy(&pr.stderr)));
+                        }
+                        Err(e) => {
+                            return Err(format!("Failed to pull screenshot: {}", e));
+                        }
+                    }
+                }
+                Ok(cr) => {
+                    return Err(format!("Failed to capture screenshot: {}", String::from_utf8_lossy(&cr.stderr)));
+                }
+                Err(e) => {
+                    return Err(format!("Failed to capture screenshot: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Screenshot exec-out error: {}", e);
             // Fallback: use temp file method
             info!("Trying fallback screenshot method...");
 
