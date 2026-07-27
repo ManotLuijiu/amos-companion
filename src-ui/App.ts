@@ -885,6 +885,9 @@ async function refreshScreenshot(): Promise<void> {
 let pointerStartX = 0;
 let pointerStartY = 0;
 let isPointerDown = false;
+let currentPointerId: number | null = null;
+let lastPointerX = 0;
+let lastPointerY = 0;
 const SWIPE_THRESHOLD = 30; // pixels of movement to distinguish swipe from tap
 
 /**
@@ -940,26 +943,51 @@ function getScreenCoords(event: PointerEvent): { x: number; y: number } | null {
 }
 
 function handlePointerDown(event: PointerEvent): void {
+	// Prevent browser gestures
+	event.preventDefault();
+
 	const coords = getScreenCoords(event);
 	if (!coords) return;
 
 	isPointerDown = true;
 	pointerStartX = coords.x;
 	pointerStartY = coords.y;
+	lastPointerX = coords.x;
+	lastPointerY = coords.y;
+	currentPointerId = event.pointerId;
+
+	// Capture pointer so we receive pointerup even if cursor leaves element
+	(event.target as HTMLElement).setPointerCapture(event.pointerId);
 }
 
-function handlePointerUp(event: PointerEvent): void {
-	if (!isPointerDown || !currentMirroringDevice) {
-		isPointerDown = false;
-		return;
-	}
-	isPointerDown = false;
+function handlePointerMove(event: PointerEvent): void {
+	if (!isPointerDown || event.pointerId !== currentPointerId) return;
 
 	const coords = getScreenCoords(event);
 	if (!coords) return;
 
-	const deltaX = coords.x - pointerStartX;
-	const deltaY = coords.y - pointerStartY;
+	lastPointerX = coords.x;
+	lastPointerY = coords.y;
+}
+
+function handlePointerUp(event: PointerEvent): void {
+	if (event.pointerId !== currentPointerId) return;
+
+	if (!isPointerDown) {
+		isPointerDown = false;
+		currentPointerId = null;
+		return;
+	}
+
+	isPointerDown = false;
+	currentPointerId = null;
+
+	const coords = getScreenCoords(event);
+	const endX = coords?.x ?? lastPointerX;
+	const endY = coords?.y ?? lastPointerY;
+
+	const deltaX = endX - pointerStartX;
+	const deltaY = endY - pointerStartY;
 	const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
 	if (distance < SWIPE_THRESHOLD) {
@@ -977,17 +1005,45 @@ function handlePointerUp(event: PointerEvent): void {
 			serial: currentMirroringDevice,
 			x1: pointerStartX,
 			y1: pointerStartY,
-			x2: coords.x,
-			y2: coords.y,
+			x2: endX,
+			y2: endY,
 		})
 			.then(() =>
 				addLog(
 					"debug",
-					`Swipe: ${pointerStartX},${pointerStartY} -> ${coords.x},${coords.y}`,
+					`Swipe: ${pointerStartX},${pointerStartY} -> ${endX},${endY}`,
 				),
 			)
 			.catch((err) => addLog("error", `Swipe failed: ${err}`));
 	}
+}
+
+function handlePointerCancel(event: PointerEvent): void {
+	if (event.pointerId !== currentPointerId) return;
+
+	// Emit swipe with last known position if we had movement
+	if (
+		isPointerDown &&
+		(pointerStartX !== lastPointerX || pointerStartY !== lastPointerY)
+	) {
+		invoke("device_swipe", {
+			serial: currentMirroringDevice,
+			x1: pointerStartX,
+			y1: pointerStartY,
+			x2: lastPointerX,
+			y2: lastPointerY,
+		})
+			.then(() =>
+				addLog(
+					"debug",
+					`Swipe: ${pointerStartX},${pointerStartY} -> ${lastPointerX},${lastPointerY}`,
+				),
+			)
+			.catch((err) => addLog("error", `Swipe failed: ${err}`));
+	}
+
+	isPointerDown = false;
+	currentPointerId = null;
 }
 
 async function handleControlBack(): Promise<void> {
@@ -1691,9 +1747,11 @@ function setupEventListeners(): void {
 	// Screen gesture handler for built-in mirror - use pointer events for tap and swipe
 	const mirrorScreen = document.getElementById("mirror-screen");
 	mirrorScreen?.addEventListener("pointerdown", handlePointerDown);
+	mirrorScreen?.addEventListener("pointermove", handlePointerMove);
 	mirrorScreen?.addEventListener("pointerup", handlePointerUp);
+	mirrorScreen?.addEventListener("pointercancel", handlePointerCancel);
 	mirrorScreen?.addEventListener("pointerleave", () => {
-		isPointerDown = false;
+		// Don't cancel here - pointer capture keeps us receiving events
 	});
 
 	// scrcpy toggle

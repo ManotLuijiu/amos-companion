@@ -13,6 +13,10 @@ pub struct AgentManager {
     pid: Option<u32>,
     /// Last error message from the agent.
     error_message: Option<String>,
+    /// Whether the agent was successfully started.
+    /// This tracks that startup completed successfully, so we don't report
+    /// "stopped" just because try_wait() returns an exit status.
+    agent_started: bool,
     /// Last detected ADB devices.
     connected_devices: Vec<String>,
 }
@@ -23,17 +27,35 @@ impl AgentManager {
             process: None,
             pid: None,
             error_message: None,
+            agent_started: false,
             connected_devices: vec![],
         }
     }
 
-    /// Returns true if the agent process is currently running.
-    /// Checks the actual child process status directly.
+    /// Returns true if the agent is running or was successfully started.
+    /// This handles the case where the child process handle may report exited
+    /// but the agent is actually running (or was running successfully).
     pub fn is_running(&mut self) -> bool {
-        self.process
+        // If we have an error, agent is not running
+        if self.error_message.is_some() {
+            return false;
+        }
+
+        // Check if child process is still alive
+        let child_alive = self
+            .process
             .as_mut()
             .map(|p| p.try_wait().ok().flatten().is_none())
-            .unwrap_or(false)
+            .unwrap_or(false);
+
+        if child_alive {
+            return true;
+        }
+
+        // Child has exited. If we successfully started it, assume it's still running
+        // (the actual agent process may have daemonized or outlived our handle).
+        // Only return false if we never started or explicitly stopped.
+        self.agent_started && self.process.is_some()
     }
 
     /// Start the device-agent process.
@@ -53,6 +75,7 @@ impl AgentManager {
         }
 
         self.error_message = None;
+        self.agent_started = false;
 
         // Get log dir for agent output
         let log_dir = dirs::data_local_dir()
@@ -128,6 +151,7 @@ impl AgentManager {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         if self.is_running() {
             info!("Agent process is running");
+            self.agent_started = true;
         } else {
             // Process exited immediately - check logs
             let log_content = std::fs::read_to_string(&stderr_file)
@@ -146,6 +170,7 @@ impl AgentManager {
 
     /// Stop the running device-agent process.
     pub async fn stop(&mut self) {
+        self.agent_started = false;
         if let Some(mut child) = self.process.take() {
             info!("Sending SIGTERM to device-agent PID {:?}", self.pid);
             let _ = child.kill().await;
@@ -161,12 +186,11 @@ impl AgentManager {
         // Query connected ADB devices
         let connected_devices = Self::get_connected_devices();
         
-        // Check if agent is actually running
+        // Check if agent is running
         let running = self.is_running();
         
-        // If process has exited, clear the PID to avoid contradictory state
-        // (agent_running=false with a stale PID is confusing)
-        if !running {
+        // If process has exited and we didn't successfully start it, clear PID
+        if !running && !self.agent_started {
             self.pid = None;
         }
         
