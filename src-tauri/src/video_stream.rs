@@ -209,12 +209,13 @@ impl VideoStream {
         let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
             Ok(l) => l,
             Err(e) => {
-                tracing::error!("Failed to bind WebSocket server: {}", e);
+                tracing::error!("Failed to bind WebSocket server on port {}: {}", port, e);
                 return;
             }
         };
 
         listener.set_nonblocking(true).ok();
+        info!("WebSocket server listening on port {}", port);
 
         // Wait for client connection
         loop {
@@ -236,7 +237,9 @@ impl VideoStream {
 
                     // Spawn thread to handle this client
                     thread::spawn(move || {
+                        info!("WebSocket: Starting stream handler");
                         let mut buf = [0u8; 65536];
+                        let mut frame_count = 0;
                         while *running.lock().unwrap() {
                             let bytes_read = {
                                 let mut input_guard = input.lock().unwrap();
@@ -244,12 +247,19 @@ impl VideoStream {
                             };
 
                             match bytes_read {
-                                Ok(0) => break,
+                                Ok(0) => {
+                                    info!("WebSocket: Stream EOF ({} frames sent)", frame_count);
+                                    break;
+                                }
                                 Ok(n) => {
+                                    frame_count += 1;
                                     // Send as WebSocket binary frame
                                     if let Err(e) = Self::send_ws_frame(&mut stream, 2, &buf[..n]) {
-                                        tracing::debug!("Stream write error: {}", e);
+                                        tracing::error!("Stream write error: {} (after {} frames)", e, frame_count);
                                         break;
+                                    }
+                                    if frame_count <= 3 || frame_count % 100 == 0 {
+                                        info!("WebSocket: Sent frame {} ({} bytes)", frame_count, n);
                                     }
                                     // Small delay to prevent overwhelming the client
                                     thread::sleep(Duration::from_micros(100));
@@ -258,12 +268,12 @@ impl VideoStream {
                                     thread::sleep(Duration::from_millis(10));
                                 }
                                 Err(e) => {
-                                    tracing::error!("Stream read error: {}", e);
+                                    tracing::error!("Stream read error: {} (after {} frames)", e, frame_count);
                                     break;
                                 }
                             }
                         }
-                        info!("WebSocket client disconnected");
+                        info!("WebSocket: Client disconnected ({} frames sent)", frame_count);
                     });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -288,6 +298,7 @@ impl VideoStream {
         loop {
             let mut line = String::new();
             if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
+                tracing::warn!("WebSocket handshake: connection closed");
                 return Err("Connection closed".to_string());
             }
             if line == "\r\n" || line == "\n" {
@@ -296,8 +307,11 @@ impl VideoStream {
             request.push_str(&line);
         }
 
+        tracing::info!("WebSocket handshake request: {}", &request[..request.len().min(200)]);
+
         // Check for WebSocket upgrade request
         if !request.contains("Upgrade: websocket") {
+            tracing::warn!("WebSocket handshake: not a websocket request");
             return Err("Not a WebSocket request".to_string());
         }
 
@@ -333,6 +347,7 @@ impl VideoStream {
             .map_err(|e| e.to_string())?;
         stream.flush().map_err(|e| e.to_string())?;
 
+        info!("WebSocket handshake completed successfully");
         Ok(())
     }
 
@@ -352,11 +367,11 @@ impl VideoStream {
     /// opcode: 2 = binary, 8 = close
     fn send_ws_frame(stream: &mut TcpStream, opcode: u8, payload: &[u8]) -> Result<(), String> {
         let len = payload.len();
-        
+
         // Frame header: FIN=1, opcode, mask=0 (server->client), payload length
         let mut header = Vec::with_capacity(10);
         header.push(0x80 | opcode); // FIN + opcode
-        
+
         if len < 126 {
             header.push(len as u8);
         } else if len < 65536 {
@@ -369,11 +384,11 @@ impl VideoStream {
                 header.push((len >> (i * 8)) as u8);
             }
         }
-        
+
         stream.write_all(&header).map_err(|e| e.to_string())?;
         stream.write_all(payload).map_err(|e| e.to_string())?;
         stream.flush().map_err(|e| e.to_string())?;
-        
+
         Ok(())
     }
 
