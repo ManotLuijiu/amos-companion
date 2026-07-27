@@ -48,6 +48,10 @@ jobs:
         if: matrix.arch == 'x86_64'
         run: rustup target add x86_64-apple-darwin
 
+      - name: Install create-dmg
+        run: |
+          which create-dmg || brew install create-dmg
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
