@@ -215,8 +215,10 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
 
   # Cleanup old builds - keep only last 3 versions by version number
+  # Run even if some builds fail, so we don't accumulate old versions
   cleanup:
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-linux, build-windows]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Install AWS CLI

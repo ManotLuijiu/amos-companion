@@ -889,6 +889,7 @@ let currentPointerId: number | null = null;
 let lastPointerX = 0;
 let lastPointerY = 0;
 const SWIPE_THRESHOLD = 30; // pixels of movement to distinguish swipe from tap
+const SWIPE_DURATION_MS = 250; // Android input swipe duration
 
 /**
  * Calculate screen coordinates from pointer event, accounting for object-fit: contain
@@ -1007,6 +1008,7 @@ function handlePointerUp(event: PointerEvent): void {
 			y1: pointerStartY,
 			x2: endX,
 			y2: endY,
+			durationMs: SWIPE_DURATION_MS,
 		})
 			.then(() =>
 				addLog(
@@ -1032,6 +1034,7 @@ function handlePointerCancel(event: PointerEvent): void {
 			y1: pointerStartY,
 			x2: lastPointerX,
 			y2: lastPointerY,
+			durationMs: SWIPE_DURATION_MS,
 		})
 			.then(() =>
 				addLog(
