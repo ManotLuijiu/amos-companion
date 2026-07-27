@@ -160,10 +160,19 @@ impl AgentManager {
     pub fn get_status(&mut self) -> AgentStatus {
         // Query connected ADB devices
         let connected_devices = Self::get_connected_devices();
-
+        
+        // Check if agent is actually running
+        let running = self.is_running();
+        
+        // If process has exited, clear the PID to avoid contradictory state
+        // (agent_running=false with a stale PID is confusing)
+        if !running {
+            self.pid = None;
+        }
+        
         AgentStatus {
             agent_online: true,
-            agent_running: self.is_running(),
+            agent_running: running,
             connected_devices,
             platform: std::env::consts::OS.to_string(),
             companion_version: env!("CARGO_PKG_VERSION").to_string(),

@@ -881,18 +881,24 @@ async function refreshScreenshot(): Promise<void> {
 	if (loading) loading.style.display = "none";
 }
 
-async function handleScreenTap(event: PointerEvent): Promise<void> {
-	if (!currentMirroringDevice) return;
+// Swipe gesture state
+let pointerStartX = 0;
+let pointerStartY = 0;
+let isPointerDown = false;
+const SWIPE_THRESHOLD = 30; // pixels of movement to distinguish swipe from tap
 
+/**
+ * Calculate screen coordinates from pointer event, accounting for object-fit: contain
+ * Returns null if click is in letterbox area
+ */
+function getScreenCoords(event: PointerEvent): { x: number; y: number } | null {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
 	) as HTMLImageElement;
-	if (!mirrorScreen || !mirrorScreen.naturalWidth) return;
+	if (!mirrorScreen || !mirrorScreen.naturalWidth) return null;
 
-	// Calculate the actual displayed image rect accounting for object-fit: contain
-	// The image is letterboxed to fit within the container
 	const container = mirrorScreen.parentElement;
-	if (!container) return;
+	if (!container) return null;
 
 	const containerRect = container.getBoundingClientRect();
 	const imgWidth = mirrorScreen.naturalWidth;
@@ -923,22 +929,64 @@ async function handleScreenTap(event: PointerEvent): Promise<void> {
 		clickY > offsetY + displayedHeight
 	) {
 		// Click is in letterbox area, ignore
-		return;
+		return null;
 	}
 
 	// Convert click coordinates to image coordinates
 	const imageX = (clickX - offsetX) / scaleToFit;
 	const imageY = (clickY - offsetY) / scaleToFit;
 
-	try {
-		await invoke("device_tap", {
+	return { x: Math.round(imageX), y: Math.round(imageY) };
+}
+
+function handlePointerDown(event: PointerEvent): void {
+	const coords = getScreenCoords(event);
+	if (!coords) return;
+
+	isPointerDown = true;
+	pointerStartX = coords.x;
+	pointerStartY = coords.y;
+}
+
+function handlePointerUp(event: PointerEvent): void {
+	if (!isPointerDown || !currentMirroringDevice) {
+		isPointerDown = false;
+		return;
+	}
+	isPointerDown = false;
+
+	const coords = getScreenCoords(event);
+	if (!coords) return;
+
+	const deltaX = coords.x - pointerStartX;
+	const deltaY = coords.y - pointerStartY;
+	const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+	if (distance < SWIPE_THRESHOLD) {
+		// This is a tap
+		invoke("device_tap", {
 			serial: currentMirroringDevice,
-			x: Math.round(imageX),
-			y: Math.round(imageY),
-		});
-		addLog("debug", `Tap: ${Math.round(imageX)},${Math.round(imageY)}`);
-	} catch (err) {
-		addLog("error", `Tap failed: ${err}`);
+			x: pointerStartX,
+			y: pointerStartY,
+		})
+			.then(() => addLog("debug", `Tap: ${pointerStartX},${pointerStartY}`))
+			.catch((err) => addLog("error", `Tap failed: ${err}`));
+	} else {
+		// This is a swipe
+		invoke("device_swipe", {
+			serial: currentMirroringDevice,
+			x1: pointerStartX,
+			y1: pointerStartY,
+			x2: coords.x,
+			y2: coords.y,
+		})
+			.then(() =>
+				addLog(
+					"debug",
+					`Swipe: ${pointerStartX},${pointerStartY} -> ${coords.x},${coords.y}`,
+				),
+			)
+			.catch((err) => addLog("error", `Swipe failed: ${err}`));
 	}
 }
 
@@ -1640,11 +1688,13 @@ function setupEventListeners(): void {
 	const btnEnter = document.getElementById("btn-enter");
 	btnEnter?.addEventListener("click", handleControlEnter);
 
-	// Screen tap handler for built-in mirror - use pointerdown for reliability during refresh
+	// Screen gesture handler for built-in mirror - use pointer events for tap and swipe
 	const mirrorScreen = document.getElementById("mirror-screen");
-	mirrorScreen?.addEventListener("pointerdown", (e: Event) =>
-		handleScreenTap(e as PointerEvent),
-	);
+	mirrorScreen?.addEventListener("pointerdown", handlePointerDown);
+	mirrorScreen?.addEventListener("pointerup", handlePointerUp);
+	mirrorScreen?.addEventListener("pointerleave", () => {
+		isPointerDown = false;
+	});
 
 	// scrcpy toggle
 	const toggleScrcpy = document.getElementById(
