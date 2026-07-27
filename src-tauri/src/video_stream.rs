@@ -255,11 +255,18 @@ impl VideoStream {
                                     frame_count += 1;
                                     // Send as WebSocket binary frame
                                     if let Err(e) = Self::send_ws_frame(&mut stream, 2, &buf[..n]) {
-                                        tracing::error!("Stream write error: {} (after {} frames)", e, frame_count);
+                                        tracing::error!(
+                                            "Stream write error: {} (after {} frames)",
+                                            e,
+                                            frame_count
+                                        );
                                         break;
                                     }
                                     if frame_count <= 3 || frame_count % 100 == 0 {
-                                        info!("WebSocket: Sent frame {} ({} bytes)", frame_count, n);
+                                        info!(
+                                            "WebSocket: Sent frame {} ({} bytes)",
+                                            frame_count, n
+                                        );
                                     }
                                     // Small delay to prevent overwhelming the client
                                     thread::sleep(Duration::from_micros(100));
@@ -268,12 +275,19 @@ impl VideoStream {
                                     thread::sleep(Duration::from_millis(10));
                                 }
                                 Err(e) => {
-                                    tracing::error!("Stream read error: {} (after {} frames)", e, frame_count);
+                                    tracing::error!(
+                                        "Stream read error: {} (after {} frames)",
+                                        e,
+                                        frame_count
+                                    );
                                     break;
                                 }
                             }
                         }
-                        info!("WebSocket: Client disconnected ({} frames sent)", frame_count);
+                        info!(
+                            "WebSocket: Client disconnected ({} frames sent)",
+                            frame_count
+                        );
                     });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -307,7 +321,10 @@ impl VideoStream {
             request.push_str(&line);
         }
 
-        tracing::info!("WebSocket handshake request: {}", &request[..request.len().min(200)]);
+        tracing::info!(
+            "WebSocket handshake request: {}",
+            &request[..request.len().min(200)]
+        );
 
         // Check for WebSocket upgrade request
         if !request.contains("Upgrade: websocket") {
