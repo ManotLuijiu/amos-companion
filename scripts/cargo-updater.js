@@ -1,7 +1,7 @@
 // Cargo.toml updater for standard-version
 // Updates version in: version = "x.y.z"
 
-module.exports = {
+export default {
 	parse(version) {
 		const match = version.match(/^version = "([^"]+)"(?:\s+#.*)?$/);
 		if (match) {

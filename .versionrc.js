@@ -1,6 +1,8 @@
 // standard-version config
 // https://github.com/conventional-changelog/standard-version
 
+import cargoUpdater from "./scripts/cargo-updater.js";
+
 /** @type {import('standard-version').Configuration} */
 export default {
 	types: [
@@ -21,7 +23,7 @@ export default {
 		{
 			filename: "src-tauri/Cargo.toml",
 			type: "toml",
-			updater: require("./scripts/cargo-updater.js"),
+			updater: cargoUpdater,
 		},
 		{
 			filename: "src-tauri/tauri.conf.json",
