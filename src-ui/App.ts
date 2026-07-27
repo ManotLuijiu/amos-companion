@@ -1418,9 +1418,14 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 
 	try {
 		const base64 = await invoke<string>("capture_screenshot", { serial });
-		mirrorScreen.src = `data:image/png;base64,${base64}`;
-		mirrorErrorCount = 0; // Reset error count on success
+		if (base64) {
+			mirrorScreen.src = `data:image/png;base64,${base64}`;
+			mirrorErrorCount = 0; // Reset error count on success
+		} else {
+			addLog("warn", "Screenshot returned empty data");
+		}
 	} catch (error) {
+		addLog("warn", `Screenshot failed: ${error}`);
 		mirrorErrorCount++;
 		if (mirrorErrorCount >= MAX_SCREENSHOT_ERRORS) {
 			addLog(
