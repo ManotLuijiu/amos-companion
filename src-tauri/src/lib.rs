@@ -541,7 +541,7 @@ async fn device_tap(serial: String, x: i32, y: i32) -> Result<(), String> {
     device_controller::tap(&serial, x, y)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn device_swipe(
     serial: String,
     x1: i32,
