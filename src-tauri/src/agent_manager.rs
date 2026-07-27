@@ -32,30 +32,12 @@ impl AgentManager {
         }
     }
 
-    /// Returns true if the agent is running or was successfully started.
-    /// This handles the case where the child process handle may report exited
-    /// but the agent is actually running (or was running successfully).
-    pub fn is_running(&mut self) -> bool {
-        // If we have an error, agent is not running
-        if self.error_message.is_some() {
-            return false;
-        }
-
-        // Check if child process is still alive
-        let child_alive = self
-            .process
-            .as_mut()
-            .map(|p| p.try_wait().ok().flatten().is_none())
-            .unwrap_or(false);
-
-        if child_alive {
-            return true;
-        }
-
-        // Child has exited. If we successfully started it, assume it's still running
-        // (the actual agent process may have daemonized or outlived our handle).
-        // Only return false if we never started or explicitly stopped.
-        self.agent_started && self.process.is_some()
+    /// Returns true if the agent is in a running state.
+    /// The truth source is: we successfully started and haven't stopped or errored.
+    /// Child process handle may not track the real agent if it daemonizes.
+    pub fn is_running(&self) -> bool {
+        // Running = started successfully and no error
+        self.agent_started && self.error_message.is_none()
     }
 
     /// Start the device-agent process.
@@ -147,22 +129,25 @@ impl AgentManager {
         self.pid = pid;
         self.process = Some(child);
 
-        // Brief wait then check if process is still running
+        // Mark as started immediately - we trust the spawn succeeded.
+        // The child handle may not track the real agent if it daemonizes,
+        // so we use this flag as the primary truth source for running state.
+        self.agent_started = true;
+        info!("Agent marked as started");
+
+        // Brief wait to catch immediate crash (but don't block on is_running)
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        if self.is_running() {
-            info!("Agent process is running");
-            self.agent_started = true;
-        } else {
-            // Process exited immediately - check logs
-            let log_content = std::fs::read_to_string(&stderr_file)
-                .unwrap_or_else(|_| "Could not read log".to_string());
-            let stdout_content = std::fs::read_to_string(&stdout_file)
-                .unwrap_or_else(|_| "Could not read stdout log".to_string());
-            error!("Agent process exited immediately! stderr: {}, stdout: {}", log_content, stdout_content);
-            self.error_message = Some(format!("Agent exited: check logs at {:?}", stderr_file));
-            self.process = None;
-            self.pid = None;
-            return Err(AgentError::StartupFailed(log_content));
+
+        // Check if process is still alive - if it exited immediately, log it
+        // but keep agent_started true so we don't falsely report "stopped"
+        let child_alive = self
+            .process
+            .as_mut()
+            .map(|p| p.try_wait().ok().flatten().is_none())
+            .unwrap_or(false);
+
+        if !child_alive {
+            warn!("Agent process exited quickly after spawn, but keeping running state (may have daemonized)");
         }
 
         Ok(())
@@ -182,17 +167,12 @@ impl AgentManager {
     }
 
     /// Return the current agent status.
-    pub fn get_status(&mut self) -> AgentStatus {
+    pub fn get_status(&self) -> AgentStatus {
         // Query connected ADB devices
         let connected_devices = Self::get_connected_devices();
         
         // Check if agent is running
         let running = self.is_running();
-        
-        // If process has exited and we didn't successfully start it, clear PID
-        if !running && !self.agent_started {
-            self.pid = None;
-        }
         
         AgentStatus {
             agent_online: true,

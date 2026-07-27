@@ -80,7 +80,7 @@ pub struct AppState {
 
 #[tauri::command]
 async fn get_status(state: tauri::State<'_, AppState>) -> Result<AgentStatus, String> {
-    let mut agent = state.agent_manager.lock().await;
+    let agent = state.agent_manager.lock().await;
     Ok(agent.get_status())
 }
 
