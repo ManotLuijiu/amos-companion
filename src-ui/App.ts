@@ -1390,30 +1390,19 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	// Stop any existing stream
 	stopMirror();
 
-	// Try WebSocket video streaming
-	try {
-		videoStream = new VideoStream(device.serial);
-		await videoStream.start();
+	// Start screenshot polling (WebSocket streaming disabled due to macOS sandbox issues)
+	addLog("info", `Starting screenshot mirror for ${device.serial}...`);
+	await refreshMirrorScreen(device.serial);
 
-		if (mirrorScreen) mirrorScreen.style.display = "block";
-		if (mirrorLoading) mirrorLoading.style.display = "none";
-		addLog("info", `Mirror started for ${device.serial}`);
-	} catch (error) {
-		addLog("warn", `Video stream failed, using screenshot fallback: ${error}`);
+	screenshotPollingInterval = setInterval(async () => {
+		if (currentMirroringDevice) {
+			await refreshMirrorScreen(currentMirroringDevice);
+		}
+	}, MIRROR_REFRESH_MS);
 
-		// Fallback to screenshot polling
-		await refreshMirrorScreen(device.serial);
-
-		screenshotPollingInterval = setInterval(async () => {
-			if (currentMirroringDevice) {
-				await refreshMirrorScreen(currentMirroringDevice);
-			}
-		}, MIRROR_REFRESH_MS);
-
-		if (mirrorScreen) mirrorScreen.style.display = "block";
-		if (mirrorLoading) mirrorLoading.style.display = "none";
-		addLog("info", `Mirror started (fallback) for ${device.serial}`);
-	}
+	if (mirrorScreen) mirrorScreen.style.display = "block";
+	if (mirrorLoading) mirrorLoading.style.display = "none";
+	addLog("info", `Mirror started for ${device.serial}`);
 
 	// Update device info
 	if (mirrorBattery)
