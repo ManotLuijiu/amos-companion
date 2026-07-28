@@ -636,12 +636,39 @@ async fn start_scrcpy_mirror(
     *server = scrcpy_server::ScrcpyServer::new(serial.clone());
 
     // Start server with Tauri events (emits frames via scrcpy-frame event)
-    let (width, height) = server.start_with_events(&app)?;
+    // Returns (width, height, process_alive) where process_alive indicates
+    // whether scrcpy-server.jar is actually running on the device.
+    let (width, height, process_alive) = server.start_with_events(&app)?;
 
     // Emit debug info AFTER start_with_events returns (frontend has set up listener by now)
     let debug_info = server.get_debug_info();
     if !debug_info.is_empty() {
         let _ = app.emit("scrcpy-debug", debug_info);
+    }
+
+    if !process_alive {
+        // Truthfully report failure to the frontend so it doesn't show
+        // "Server started (1920x1920)" when the scrcpy-server process is not
+        // actually alive. The frontend should fall back to ADB screenrecord
+        // when running=false comes back.
+        info!(
+            "scrcpy-server process not alive on device after launch for {}",
+            serial
+        );
+        let _ = app.emit(
+            "scrcpy-stream-started",
+            serde_json::json!({
+                "serial": serial,
+                "running": false,
+                "reason": "scrcpy-server process not alive on device",
+            }),
+        );
+        return Ok(ScrcpyStreamInfo {
+            width: 0,
+            height: 0,
+            running: false,
+            event_name: scrcpy_server::ScrcpyServer::SCRCPY_FRAME_EVENT.to_string(),
+        });
     }
 
     info!(
@@ -678,7 +705,11 @@ async fn start_mirror(
     *server = scrcpy_server::ScrcpyServer::new(serial);
 
     // Start server (legacy - returns WebSocket URL)
-    server.start()
+    if server.start()? {
+        Ok(format!("ws://127.0.0.1:{}", server.get_local_port()))
+    } else {
+        Err("scrcpy-server process not alive on device".to_string())
+    }
 }
 
 #[tauri::command]

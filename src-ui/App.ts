@@ -235,7 +235,7 @@ function clearLogs(): void {
 	logEntries = [];
 	const logContainer = document.getElementById("log-content");
 	if (logContainer) {
-		logContainer.innerHTML = "";
+		logContainer.replaceChildren();
 	}
 }
 
@@ -328,11 +328,19 @@ function buildLoginSection(): HTMLElement {
 	divider.appendChild(dividerText);
 
 	// Google OAuth button
+	// Uses the official Google wordmark downloaded from Google's brand
+	// site (companion/src-ui/public/google-logo.png). Per Google's brand
+	// guidelines we do not modify the asset. The wordmark is displayed in
+	// its intended proportions and the clickable area triggers OAuth.
 	const googleBtn = document.createElement("button");
 	googleBtn.type = "button";
 	googleBtn.className = "btn btn-google";
-	googleBtn.innerHTML =
-		'<svg class="google-icon" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg> Sign in with Google';
+	const googleLogo = document.createElement("img");
+	googleLogo.src = "google-logo.png";
+	googleLogo.alt = "Google";
+	googleLogo.className = "google-logo";
+	googleLogo.setAttribute("loading", "lazy");
+	googleBtn.append(googleLogo);
 	googleBtn.addEventListener("click", handleGoogleLogin);
 
 	// Email/Password form
@@ -593,53 +601,76 @@ function createAgentCard(): HTMLElement {
 
 	const header = document.createElement("div");
 	header.className = "card-header";
-	header.innerHTML = `
-		<div class="card-title">
-			<span class="card-icon">🎯</span>
-			Agent Status
-		</div>
-	`;
+	const title = document.createElement("div");
+	title.className = "card-title";
+	const icon = document.createElement("span");
+	icon.className = "card-icon";
+	icon.textContent = "🎯";
+	title.append(icon, "Agent Status");
+	header.appendChild(title);
 	card.appendChild(header);
 
 	const body = document.createElement("div");
 	body.className = "card-body";
-	body.innerHTML = `
-		<div class="status-display">
-			<div class="status-indicator-large" id="status-indicator-large"></div>
-			<div class="status-info">
-				<div class="status-label-large" id="status-label-large">Loading...</div>
-				<div class="status-detail" id="status-detail-text">Connecting...</div>
-			</div>
-		</div>
-		<div class="status-meta" id="status-meta">
-			<div class="meta-item">
-				<span class="meta-label">PID</span>
-				<span class="meta-value" id="meta-pid">—</span>
-			</div>
-			<div class="meta-item">
-				<span class="meta-label">Platform</span>
-				<span class="meta-value" id="meta-platform">—</span>
-			</div>
-			<div class="meta-item">
-				<span class="meta-label">Devices</span>
-				<span class="meta-value" id="meta-devices">0</span>
-			</div>
-		</div>
-	`;
+	const statusDisplay = document.createElement("div");
+	statusDisplay.className = "status-display";
+	const indicator = document.createElement("div");
+	indicator.className = "status-indicator-large";
+	indicator.id = "status-indicator-large";
+	const statusInfo = document.createElement("div");
+	statusInfo.className = "status-info";
+	const statusLabel = document.createElement("div");
+	statusLabel.className = "status-label-large";
+	statusLabel.id = "status-label-large";
+	statusLabel.textContent = "Loading...";
+	const statusDetail = document.createElement("div");
+	statusDetail.className = "status-detail";
+	statusDetail.id = "status-detail-text";
+	statusDetail.textContent = "Connecting...";
+	statusInfo.append(statusLabel, statusDetail);
+	statusDisplay.append(indicator, statusInfo);
+
+	const statusMeta = document.createElement("div");
+	statusMeta.className = "status-meta";
+	statusMeta.id = "status-meta";
+	[
+		["PID", "meta-pid", "—"],
+		["Platform", "meta-platform", "—"],
+		["Devices", "meta-devices", "0"],
+	].forEach(([label, id, value]) => {
+		const item = document.createElement("div");
+		item.className = "meta-item";
+		const labelSpan = document.createElement("span");
+		labelSpan.className = "meta-label";
+		labelSpan.textContent = label;
+		const valueSpan = document.createElement("span");
+		valueSpan.className = "meta-value";
+		valueSpan.id = id;
+		valueSpan.textContent = value;
+		item.append(labelSpan, valueSpan);
+		statusMeta.appendChild(item);
+	});
+	body.append(statusDisplay, statusMeta);
 	card.appendChild(body);
 
 	const actions = document.createElement("div");
 	actions.className = "card-actions";
-	actions.innerHTML = `
-		<button class="btn btn-primary btn-large" id="btn-start">
-			<span class="btn-icon">▶</span>
-			Start Agent
-		</button>
-		<button class="btn btn-danger btn-large" id="btn-stop" disabled>
-			<span class="btn-icon">■</span>
-			Stop Agent
-		</button>
-	`;
+	const btnStart = document.createElement("button");
+	btnStart.className = "btn btn-primary btn-large";
+	btnStart.id = "btn-start";
+	const startIcon = document.createElement("span");
+	startIcon.className = "btn-icon";
+	startIcon.textContent = "▶";
+	btnStart.append(startIcon, "Start Agent");
+	const btnStop = document.createElement("button");
+	btnStop.className = "btn btn-danger btn-large";
+	btnStop.id = "btn-stop";
+	btnStop.disabled = true;
+	const stopIcon = document.createElement("span");
+	stopIcon.className = "btn-icon";
+	stopIcon.textContent = "■";
+	btnStop.append(stopIcon, "Stop Agent");
+	actions.append(btnStart, btnStop);
 	card.appendChild(actions);
 
 	return card;
@@ -654,32 +685,50 @@ function createDeviceCard(): HTMLElement {
 
 	const header = document.createElement("div");
 	header.className = "card-header";
-	header.innerHTML = `
-		<div class="card-title">
-			<span class="card-icon">📱</span>
-			Devices
-		</div>
-		<span class="badge badge-info" id="device-count">0</span>
-	`;
+	const title = document.createElement("div");
+	title.className = "card-title";
+	const icon = document.createElement("span");
+	icon.className = "card-icon";
+	icon.textContent = "📱";
+	title.append(icon, "Devices");
+	const count = document.createElement("span");
+	count.className = "badge badge-info";
+	count.id = "device-count";
+	count.textContent = "0";
+	header.append(title, count);
 	card.appendChild(header);
 
 	const body = document.createElement("div");
 	body.className = "card-body";
 	body.style.padding = "12px";
-	body.innerHTML = `
-		<div class="device-search-container" style="margin-bottom: 12px;">
-			<input type="text" id="device-search" class="setting-input" 
-				placeholder="🔍 Search devices..." style="width: 100%;" />
-		</div>
-		<div class="device-list-container" id="device-list-container">
-			<ul class="device-list" id="device-list">
-				<li class="device-empty" id="device-empty">
-					<span class="empty-icon">📲</span>
-					<span>No devices connected</span>
-				</li>
-			</ul>
-		</div>
-	`;
+	const searchContainer = document.createElement("div");
+	searchContainer.className = "device-search-container";
+	searchContainer.style.marginBottom = "12px";
+	const input = document.createElement("input");
+	input.type = "text";
+	input.id = "device-search";
+	input.className = "setting-input";
+	input.placeholder = "🔍 Search devices...";
+	input.style.width = "100%";
+	searchContainer.appendChild(input);
+	const listContainer = document.createElement("div");
+	listContainer.className = "device-list-container";
+	listContainer.id = "device-list-container";
+	const list = document.createElement("ul");
+	list.className = "device-list";
+	list.id = "device-list";
+	const empty = document.createElement("li");
+	empty.className = "device-empty";
+	empty.id = "device-empty";
+	const emptyIcon = document.createElement("span");
+	emptyIcon.className = "empty-icon";
+	emptyIcon.textContent = "📲";
+	const emptyText = document.createElement("span");
+	emptyText.textContent = "No devices connected";
+	empty.append(emptyIcon, emptyText);
+	list.appendChild(empty);
+	listContainer.appendChild(list);
+	body.append(searchContainer, listContainer);
 	card.appendChild(body);
 
 	return card;
@@ -694,38 +743,61 @@ function createSettingsCard(): HTMLElement {
 
 	const header = document.createElement("div");
 	header.className = "card-header collapsible";
-	header.innerHTML = `
-		<div class="card-title">
-			<span class="card-icon">⚙️</span>
-			Settings
-		</div>
-		<span class="collapse-icon">▼</span>
-	`;
+	const title = document.createElement("div");
+	title.className = "card-title";
+	const icon = document.createElement("span");
+	icon.className = "card-icon";
+	icon.textContent = "⚙️";
+	title.append(icon, "Settings");
+	const collapseIcon = document.createElement("span");
+	collapseIcon.className = "collapse-icon";
+	collapseIcon.textContent = "▼";
+	header.append(title, collapseIcon);
 	header.onclick = () => card.classList.toggle("collapsed");
 	card.appendChild(header);
 
 	const body = document.createElement("div");
 	body.className = "card-body";
-	body.innerHTML = `
-		<div class="setting-item">
-			<label class="setting-label">AMOS API URL</label>
-			<input type="url" class="setting-input" id="api-url" placeholder="https://amos-api.moo-vpn.online" />
-		</div>
-		<div class="setting-item">
-			<label class="setting-label">
-				High Performance Mode
-				<span class="setting-hint" id="scrcpy-status"></span>
-			</label>
-			<div class="toggle-container">
-				<input type="checkbox" id="toggle-scrcpy" class="toggle-input" />
-				<label for="toggle-scrcpy" class="toggle-label"></label>
-				<span class="toggle-text" id="toggle-scrcpy-text">Requires scrcpy</span>
-			</div>
-		</div>
-		<button class="btn btn-secondary btn-full" id="btn-open-web">
-			🌐 Open AMOS Web UI
-		</button>
-	`;
+	const apiItem = document.createElement("div");
+	apiItem.className = "setting-item";
+	const apiLabel = document.createElement("label");
+	apiLabel.className = "setting-label";
+	apiLabel.textContent = "AMOS API URL";
+	const apiInput = document.createElement("input");
+	apiInput.type = "url";
+	apiInput.className = "setting-input";
+	apiInput.id = "api-url";
+	apiInput.placeholder = "https://amos-api.moo-vpn.online";
+	apiItem.append(apiLabel, apiInput);
+	const perfItem = document.createElement("div");
+	perfItem.className = "setting-item";
+	const perfLabel = document.createElement("label");
+	perfLabel.className = "setting-label";
+	perfLabel.append("High Performance Mode");
+	const scrcpyStatus = document.createElement("span");
+	scrcpyStatus.className = "setting-hint";
+	scrcpyStatus.id = "scrcpy-status";
+	perfLabel.appendChild(scrcpyStatus);
+	const toggleContainer = document.createElement("div");
+	toggleContainer.className = "toggle-container";
+	const toggleInput = document.createElement("input");
+	toggleInput.type = "checkbox";
+	toggleInput.id = "toggle-scrcpy";
+	toggleInput.className = "toggle-input";
+	const toggleLabel = document.createElement("label");
+	toggleLabel.htmlFor = "toggle-scrcpy";
+	toggleLabel.className = "toggle-label";
+	const toggleText = document.createElement("span");
+	toggleText.className = "toggle-text";
+	toggleText.id = "toggle-scrcpy-text";
+	toggleText.textContent = "Requires scrcpy";
+	toggleContainer.append(toggleInput, toggleLabel, toggleText);
+	perfItem.append(perfLabel, toggleContainer);
+	const openWebBtn = document.createElement("button");
+	openWebBtn.className = "btn btn-secondary btn-full";
+	openWebBtn.id = "btn-open-web";
+	openWebBtn.textContent = "🌐 Open AMOS Web UI";
+	body.append(apiItem, perfItem, openWebBtn);
 	card.appendChild(body);
 
 	return card;
@@ -741,60 +813,100 @@ function createMirrorCard(): HTMLElement {
 
 	const header = document.createElement("div");
 	header.className = "mirror-header";
-	header.innerHTML = `
-		<div class="mirror-title">
-			<span>📺</span>
-			<span class="device-name" id="mirror-device-name">Screen Mirror</span>
-			<button class="mirror-edit-name" id="btn-edit-device-name" title="Edit name">✎</button>
-		</div>
-		<button class="mirror-close" id="btn-close-mirror" title="Close mirror">✕</button>
-	`;
+	const title = document.createElement("div");
+	title.className = "mirror-title";
+	const titleIcon = document.createElement("span");
+	titleIcon.textContent = "📺";
+	const deviceName = document.createElement("span");
+	deviceName.className = "device-name";
+	deviceName.id = "mirror-device-name";
+	deviceName.textContent = "Screen Mirror";
+	const editName = document.createElement("button");
+	editName.className = "mirror-edit-name";
+	editName.id = "btn-edit-device-name";
+	editName.title = "Edit name";
+	editName.textContent = "✎";
+	title.append(titleIcon, deviceName, editName);
+	const close = document.createElement("button");
+	close.className = "mirror-close";
+	close.id = "btn-close-mirror";
+	close.title = "Close mirror";
+	close.textContent = "✕";
+	header.append(title, close);
 	card.appendChild(header);
 
 	const screenContainer = document.createElement("div");
 	screenContainer.className = "mirror-screen-container";
 	screenContainer.id = "mirror-screen-container";
-	screenContainer.innerHTML = `
-		<div class="mirror-screen-placeholder" id="mirror-placeholder">
-			<span class="icon">📱</span>
-			<span class="text">Select a device to start mirroring</span>
-		</div>
-		<div class="mirror-loading" id="mirror-loading" style="display: none;">
-			<div class="spinner"></div>
-			<span>Connecting to device...</span>
-		</div>
-		<img class="mirror-screen" id="mirror-screen" style="display: none;" alt="Device Screen" />
-		<div class="mirror-secure-notice" id="mirror-secure-notice" style="display: none;">
-			This secure screen may appear blank. Enter PIN directly on device.
-		</div>
-	`;
+	const placeholder = document.createElement("div");
+	placeholder.className = "mirror-screen-placeholder";
+	placeholder.id = "mirror-placeholder";
+	const placeholderIcon = document.createElement("span");
+	placeholderIcon.className = "icon";
+	placeholderIcon.textContent = "📱";
+	const placeholderText = document.createElement("span");
+	placeholderText.className = "text";
+	placeholderText.textContent = "Select a device to start mirroring";
+	placeholder.append(placeholderIcon, placeholderText);
+	const loading = document.createElement("div");
+	loading.className = "mirror-loading";
+	loading.id = "mirror-loading";
+	loading.style.display = "none";
+	const spinner = document.createElement("div");
+	spinner.className = "spinner";
+	const loadingText = document.createElement("span");
+	loadingText.textContent = "Connecting to device...";
+	loading.append(spinner, loadingText);
+	const mirrorScreen = document.createElement("img");
+	mirrorScreen.className = "mirror-screen";
+	mirrorScreen.id = "mirror-screen";
+	mirrorScreen.style.display = "none";
+	mirrorScreen.alt = "Device Screen";
+	const secureNotice = document.createElement("div");
+	secureNotice.className = "mirror-secure-notice";
+	secureNotice.id = "mirror-secure-notice";
+	secureNotice.style.display = "none";
+	secureNotice.textContent =
+		"This secure screen may appear blank. Enter PIN directly on device.";
+	screenContainer.append(placeholder, loading, mirrorScreen, secureNotice);
 	card.appendChild(screenContainer);
 
 	const controls = document.createElement("div");
 	controls.className = "mirror-controls";
 	controls.id = "mirror-controls";
 	controls.style.display = "none";
-	controls.innerHTML = `
-		<button class="btn btn-secondary" id="btn-mirror-back" title="Back">⬅</button>
-		<button class="btn btn-secondary" id="btn-mirror-home" title="Home">🏠</button>
-		<button class="btn btn-secondary" id="btn-mirror-enter" title="Enter">↵</button>
-		<button class="btn btn-secondary" id="btn-mirror-power" title="Power">⏻</button>
-	`;
+	[
+		["btn-mirror-back", "Back", "⬅"],
+		["btn-mirror-home", "Home", "🏠"],
+		["btn-mirror-enter", "Enter", "↵"],
+		["btn-mirror-power", "Power", "⏻"],
+	].forEach(([id, titleText, text]) => {
+		const button = document.createElement("button");
+		button.className = "btn btn-secondary";
+		button.id = id;
+		button.title = titleText;
+		button.textContent = text;
+		controls.appendChild(button);
+	});
 	card.appendChild(controls);
 
 	const status = document.createElement("div");
 	status.className = "mirror-status";
 	status.id = "mirror-status";
-	status.innerHTML = `
-		<div class="status-item">
-			<span>●</span>
-			<span id="mirror-battery">—</span>
-		</div>
-		<div class="status-item">
-			<span>📶</span>
-			<span id="mirror-wifi">—</span>
-		</div>
-	`;
+	[
+		["●", "mirror-battery"],
+		["📶", "mirror-wifi"],
+	].forEach(([iconText, id]) => {
+		const item = document.createElement("div");
+		item.className = "status-item";
+		const icon = document.createElement("span");
+		icon.textContent = iconText;
+		const value = document.createElement("span");
+		value.id = id;
+		value.textContent = "—";
+		item.append(icon, value);
+		status.appendChild(item);
+	});
 	card.appendChild(status);
 
 	return card;
@@ -810,36 +922,56 @@ function createLogCard(): HTMLElement {
 
 	const header = document.createElement("div");
 	header.className = "card-header";
-	header.innerHTML = `
-		<div class="card-title">
-			<span class="card-icon">📋</span>
-			Activity Logs
-		</div>
-		<div class="log-controls">
-			<select id="log-filter" class="log-filter-select" style="
-				background: var(--bg-tertiary);
-				border: 1px solid var(--border-color);
-				color: var(--text-primary);
-				padding: 4px 8px;
-				border-radius: 6px;
-				font-size: 11px;
-			">
-				<option value="all">All</option>
-				<option value="info">Info</option>
-				<option value="warn">Warning</option>
-				<option value="error">Error</option>
-			</select>
-			<button class="btn btn-small btn-ghost" id="btn-export-logs" title="Export logs">📤</button>
-			<button class="btn btn-small btn-ghost" id="btn-clear-logs" title="Clear logs">🗑️</button>
-		</div>
-	`;
+	const title = document.createElement("div");
+	title.className = "card-title";
+	const icon = document.createElement("span");
+	icon.className = "card-icon";
+	icon.textContent = "📋";
+	title.append(icon, "Activity Logs");
+	const controls = document.createElement("div");
+	controls.className = "log-controls";
+	const filter = document.createElement("select");
+	filter.id = "log-filter";
+	filter.className = "log-filter-select";
+	filter.style.background = "var(--bg-tertiary)";
+	filter.style.border = "1px solid var(--border-color)";
+	filter.style.color = "var(--text-primary)";
+	filter.style.padding = "4px 8px";
+	filter.style.borderRadius = "6px";
+	filter.style.fontSize = "11px";
+	[
+		["all", "All"],
+		["info", "Info"],
+		["warn", "Warning"],
+		["error", "Error"],
+	].forEach(([value, label]) => {
+		const option = document.createElement("option");
+		option.value = value;
+		option.textContent = label;
+		filter.appendChild(option);
+	});
+	const exportBtn = document.createElement("button");
+	exportBtn.className = "btn btn-small btn-ghost";
+	exportBtn.id = "btn-export-logs";
+	exportBtn.title = "Export logs";
+	exportBtn.textContent = "📤";
+	const clearBtn = document.createElement("button");
+	clearBtn.className = "btn btn-small btn-ghost";
+	clearBtn.id = "btn-clear-logs";
+	clearBtn.title = "Clear logs";
+	clearBtn.textContent = "🗑️";
+	controls.append(filter, exportBtn, clearBtn);
+	header.append(title, controls);
 	card.appendChild(header);
 
 	const body = document.createElement("div");
 	body.className = "log-container";
 	body.id = "log-container";
 	body.style.flex = "1";
-	body.innerHTML = `<div class="log-content" id="log-content"></div>`;
+	const content = document.createElement("div");
+	content.className = "log-content";
+	content.id = "log-content";
+	body.appendChild(content);
 	card.appendChild(body);
 
 	return card;
@@ -848,11 +980,14 @@ function createLogCard(): HTMLElement {
 function buildFooter(): HTMLElement {
 	const footer = document.createElement("footer");
 	footer.className = "app-footer";
-	footer.innerHTML = `
-		<span>AMOS Device Management</span>
-		<span class="footer-sep">•</span>
-		<span>${new Date().getFullYear()}</span>
-	`;
+	const title = document.createElement("span");
+	title.textContent = "AMOS Device Management";
+	const sep = document.createElement("span");
+	sep.className = "footer-sep";
+	sep.textContent = "•";
+	const year = document.createElement("span");
+	year.textContent = String(new Date().getFullYear());
+	footer.append(title, sep, year);
 	return footer;
 }
 
@@ -1372,13 +1507,20 @@ function refreshUI(): void {
 	const btnStop = document.getElementById("btn-stop") as HTMLButtonElement;
 
 	if (btnStart && btnStop) {
+		const startIcon = document.createElement("span");
+		startIcon.className = "btn-icon";
 		if (display === "running") {
 			btnStart.disabled = true;
-			btnStart.innerHTML = '<span class="btn-icon">✓</span> Running';
+			startIcon.textContent = "✓";
+			btnStart.replaceChildren(startIcon, document.createTextNode("Running"));
 			btnStop.disabled = false;
 		} else {
 			btnStart.disabled = false;
-			btnStart.innerHTML = '<span class="btn-icon">▶</span> Start Agent';
+			startIcon.textContent = "▶";
+			btnStart.replaceChildren(
+				startIcon,
+				document.createTextNode("Start Agent"),
+			);
 			btnStop.disabled = true;
 		}
 	}
@@ -1476,20 +1618,26 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 				device.status === "device" || device.status === "connected";
 			li.className = `device-item ${isOnline ? "device-online" : "device-offline"}`;
 			const isMirroring = currentMirroringDevice === device.serial;
-			li.innerHTML = `
-				<span class="device-icon ${isOnline ? "online" : "offline"}"></span>
-				<div class="device-info">
-					<span class="device-name">${device.model || "Unknown Device"}</span>
-					<span class="device-serial">${device.serial}</span>
-				</div>
-				<div class="device-actions">
-					<button class="btn btn-small ${isMirroring ? "btn-primary" : "btn-secondary"} btn-mirror" 
-						title="${isMirroring ? "Stop mirroring" : "Start mirroring"}" 
-						data-device="${device.serial}">
-						${isMirroring ? "■" : "👁️"}
-					</button>
-				</div>
-			`;
+			const icon = document.createElement("span");
+			icon.className = `device-icon ${isOnline ? "online" : "offline"}`;
+			const info = document.createElement("div");
+			info.className = "device-info";
+			const name = document.createElement("span");
+			name.className = "device-name";
+			name.textContent = device.model || "Unknown Device";
+			const serial = document.createElement("span");
+			serial.className = "device-serial";
+			serial.textContent = device.serial;
+			info.append(name, serial);
+			const actions = document.createElement("div");
+			actions.className = "device-actions";
+			const button = document.createElement("button");
+			button.className = `btn btn-small ${isMirroring ? "btn-primary" : "btn-secondary"} btn-mirror`;
+			button.title = isMirroring ? "Stop mirroring" : "Start mirroring";
+			button.dataset.device = device.serial;
+			button.textContent = isMirroring ? "■" : "👁️";
+			actions.appendChild(button);
+			li.append(icon, info, actions);
 			// Device click - select device
 			li.onclick = (e) => {
 				const target = e.target as HTMLElement;
@@ -1535,12 +1683,18 @@ const MIRROR_REFRESH_MS = 200; // 5 FPS fallback
 // 1. Waits for actual first frame to render before declaring success
 // 2. Automatic fallback to screenshot polling if video doesn't render
 // 3. 5-second timeout prevents false success states
+// 4. Backend now emits structured payloads `{ bytes, key }`. The key flag is
+//    set by the backend while grouping NALs into access units (it tracks IDR
+//    presence). The frontend just trusts the flag — no more first-NAL-byte
+//    guessing in TypeScript.
+
 class VideoStream {
 	private unlistenFrame: (() => void) | null = null;
 	private decoder: globalThis.VideoDecoder | null = null;
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
 	private running = false;
+	private _stopped = false;
 	private width = 1080;
 	private height = 1920;
 	private _firstFrameRendered = false;
@@ -1548,6 +1702,15 @@ class VideoStream {
 	private _firstFrameTimeout: ReturnType<typeof setTimeout> | null = null;
 	/** Timeout in ms to wait for first frame before giving up */
 	private static readonly FIRST_FRAME_TIMEOUT_MS = 5000;
+	/**
+	 * FIX 1: bounded startup queue. If a frame event arrives from the backend
+	 * BEFORE canvas/ctx/decoder are wired up, the frame is queued instead of
+	 * being dropped. Once canvas+ctx are created in start(), the queue is
+	 * drained in order. Bounded so a stall on the backend can't blow up
+	 * memory.
+	 */
+	private _earlyFrames: Array<{ bytes: ArrayBuffer; isKey: boolean }> = [];
+	private static readonly EARLY_FRAMES_CAP = 16;
 
 	constructor(private serial: string) {}
 
@@ -1594,6 +1757,10 @@ class VideoStream {
 				`Video stream started (${this.width}x${this.height}) via Tauri events`,
 			);
 
+			// FIX 1: drain any frames that arrived between subscribe and canvas
+			// creation. Decoder init is lazy and happens on first decode call.
+			this.drainEarlyFrames();
+
 			// Wait for first frame with timeout - this is the critical fix
 			// We don't declare success until we actually have a rendered frame
 			return this.waitForFirstFrame();
@@ -1633,28 +1800,77 @@ class VideoStream {
 			this.unlistenFrame = null;
 		}
 
-		// Use Tauri's event system instead of WebSocket
-		// This is the proper way for Tauri 2.x - bypasses sandbox restrictions
 		const { listen } = await import("@tauri-apps/api/event");
-		const unlisten = await listen<number[]>("video-frame", (event) => {
-			if (!this.running) return;
-			const data = new Uint8Array(event.payload).buffer;
-			this.handleFrame(data);
-		});
+		// New structured payload: { bytes: number[], key: boolean }
+		// The backend has already grouped NALs into access units and tells us
+		// whether the AU contains an IDR (keyframe) — no more guessing from
+		// the first NAL byte on the frontend.
+		const unlisten = await listen<{ bytes: number[]; key: boolean }>(
+			"video-frame",
+			(event) => {
+				if (this._stopped) return;
+				const data = new Uint8Array(event.payload.bytes).buffer;
+				this.handleFrame(data, event.payload.key);
+			},
+		);
 		this.unlistenFrame = unlisten;
 	}
 
-	private handleFrame(data: ArrayBuffer): void {
+	/**
+	 * FIX 1: if a frame arrives before canvas/ctx are ready, queue it in
+	 * order. Otherwise dispatch for decoding. Decoder creation is lazy inside
+	 * decodeWithWebCodecs(), so we must NOT queue merely because decoder is
+	 * still null, or the first AU can get stuck forever after drainEarlyFrames()
+	 * already ran.
+	 */
+	private handleFrame(data: ArrayBuffer, isKey: boolean): void {
+		if (this._stopped) return;
+		// If render objects are not yet ready, queue. The frame is dropped if
+		// the queue is already at the cap (the cap is small so we never fall
+		// far behind; this is a startup-only buffer).
+		if (!this.canvas || !this.ctx) {
+			if (this._earlyFrames.length >= VideoStream.EARLY_FRAMES_CAP) {
+				// Drop the oldest queued frame to keep the queue bounded.
+				this._earlyFrames.shift();
+			}
+			this._earlyFrames.push({ bytes: data, isKey });
+			return;
+		}
+
 		// Try WebCodecs first (Chrome 94+)
 		if (typeof VideoDecoder !== "undefined") {
-			this.decodeWithWebCodecs(data);
+			this.decodeWithWebCodecs(data, isKey);
 		} else {
 			// Fallback: try to display as PNG if possible
 			this.displayAsImage(data);
 		}
 	}
 
-	private async decodeWithWebCodecs(data: ArrayBuffer): Promise<void> {
+	/**
+	 * FIX 1: drain queued early frames in order. Called from start() after
+	 * canvas+ctx are created. Each skipped frame is consistently dropped
+	 * after the timeout fires, not replayed into a stopped stream.
+	 */
+	private drainEarlyFrames(): void {
+		if (this._earlyFrames.length === 0) return;
+		// Move the queue out so any synchronous handler that re-enters cannot
+		// see/append during iteration.
+		const queued = this._earlyFrames;
+		this._earlyFrames = [];
+		for (const f of queued) {
+			if (this._stopped) return;
+			if (typeof VideoDecoder !== "undefined") {
+				this.decodeWithWebCodecs(f.bytes, f.isKey);
+			} else {
+				this.displayAsImage(f.bytes);
+			}
+		}
+	}
+
+	private async decodeWithWebCodecs(
+		data: ArrayBuffer,
+		isKey: boolean,
+	): Promise<void> {
 		if (!this.decoder) {
 			this.initDecoder();
 		}
@@ -1663,7 +1879,10 @@ class VideoStream {
 
 		try {
 			const chunk = new EncodedVideoChunk({
-				type: "key", // screenrecord sends all keyframes
+				// Backend tells us the truth: this AU was tagged `key` iff it
+				// contained an IDR slice. Use the flag directly instead of
+				// inspecting NAL bytes ourselves.
+				type: isKey ? "key" : "delta",
 				timestamp: Date.now() * 1000,
 				data,
 			});
@@ -1755,6 +1974,12 @@ class VideoStream {
 
 	stop(): void {
 		this.running = false;
+		// Set _stopped so any frame handler that was already scheduled
+		// after a previous continue can short-circuit and not render/stop.
+		this._stopped = true;
+		// Drop any queued startup frames so they don't get replayed after
+		// a future restart of the same stream instance.
+		this._earlyFrames = [];
 
 		// Unsubscribe from Tauri event
 		if (this.unlistenFrame) {
@@ -1791,6 +2016,7 @@ class ScrcpyVideoStream {
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
 	private running = false;
+	private _stopped = false;
 	private width = 1080;
 	private height = 1920;
 	private _firstFrameRendered = false;
@@ -1826,8 +2052,17 @@ class ScrcpyVideoStream {
 				event_name: string;
 			}>("start_scrcpy_mirror", { serial: this.serial });
 
+			// FIX Issue 3: Only proceed if the backend genuinely reports the
+			// scrcpy-server process is alive on the device. Previously we
+			// accepted width/height defaults of (1920,1920) and printed
+			// "Server started" even when the server process was already dead.
 			if (!info.running) {
-				throw new Error("scrcpy-server failed to start");
+				addLog(
+					"warn",
+					"[SCRCPY] scrcpy-server process NOT alive on device, will fall back to ADB screenrecord",
+				);
+				this.stop();
+				return false;
 			}
 
 			this.width = info.width || 1080;
@@ -1841,9 +2076,11 @@ class ScrcpyVideoStream {
 
 			this.running = true;
 
+			// Don't log "Server started" until we know a real frame is rendered.
+			// The previous wording claimed success before any pixel was on screen.
 			addLog(
 				"info",
-				`[SCRCPY] Server started (${this.width}x${this.height}), waiting for frames...`,
+				`[SCRCPY] scrcpy-server alive (${this.width}x${this.height}), waiting for first frame...`,
 			);
 
 			return this.waitForFirstFrame();
@@ -1880,22 +2117,25 @@ class ScrcpyVideoStream {
 		});
 
 		// Listen for video frames
-		this.unlistenFrame = await listen<number[]>("scrcpy-frame", (event) => {
-			if (!this.running) return;
-			const data = new Uint8Array(event.payload).buffer;
-			this.handleFrame(data);
-		});
+		this.unlistenFrame = await listen<{ bytes: number[]; key: boolean }>(
+			"scrcpy-frame",
+			(event) => {
+				if (this._stopped) return;
+				const data = new Uint8Array(event.payload.bytes).buffer;
+				this.handleFrame(data, event.payload.key);
+			},
+		);
 	}
 
-	private handleFrame(data: ArrayBuffer): void {
+	private handleFrame(data: ArrayBuffer, isKey: boolean): void {
 		if (typeof VideoDecoder !== "undefined") {
-			this.decodeWithWebCodecs(data);
+			this.decodeWithWebCodecs(data, isKey);
 		} else {
 			addLog("warn", "[SCRCPY] WebCodecs not available");
 		}
 	}
 
-	private decodeWithWebCodecs(data: ArrayBuffer): void {
+	private decodeWithWebCodecs(data: ArrayBuffer, isKey: boolean): void {
 		if (!this.decoder) {
 			addLog("info", `[SCRCPY] Initializing decoder...`);
 			this.initDecoder();
@@ -1908,7 +2148,7 @@ class ScrcpyVideoStream {
 
 		try {
 			const chunk = new EncodedVideoChunk({
-				type: "key", // scrcpy sends all keyframes
+				type: isKey ? "key" : "delta",
 				timestamp: Date.now() * 1000,
 				data,
 			});
@@ -1916,7 +2156,7 @@ class ScrcpyVideoStream {
 			this.decoder.decode(chunk);
 			addLog(
 				"debug",
-				`[SCRCPY] Frame submitted for decode (${data.byteLength} bytes)`,
+				`[SCRCPY] Frame submitted for decode (${data.byteLength} bytes, key=${isKey})`,
 			);
 		} catch (error) {
 			addLog("warn", `[SCRCPY] Decode error: ${error}`);
@@ -1995,6 +2235,7 @@ class ScrcpyVideoStream {
 
 	stop(): void {
 		this.running = false;
+		this._stopped = true;
 
 		if (this._firstFrameTimeout) {
 			clearTimeout(this._firstFrameTimeout);

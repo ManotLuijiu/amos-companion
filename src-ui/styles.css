@@ -1192,9 +1192,17 @@ body {
 	border-color: var(--border-subtle);
 }
 
-.google-icon {
-	width: 20px;
-	height: 20px;
+/*
+ * Official Google wordmark (GoogleLogo_RGB_Color.png downloaded from
+ * Google's brand site). Displayed at a height appropriate for a sign-in
+ * button; width follows the asset's natural aspect ratio (~1.83:1).
+ * Per Google's brand guidelines: do not crop, recolor, rotate, or
+ * apply effects to the image.
+ */
+.google-logo {
+	height: 22px;
+	width: auto;
+	display: block;
 }
 
 .login-divider {

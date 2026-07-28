@@ -9,12 +9,17 @@
 //! PERFORMANCE NOTE: ADB adds significant latency (~100-300ms per frame).
 //! For better performance, use scrcpy mode (scrcpy_server.rs) instead.
 //!
-//! H.264 NAL Unit Handling:
-//! The raw H.264 stream from screenrecord must be parsed at NAL unit boundaries.
-//! NAL units start with one of these start codes:
-//!   - 0x00 0x00 0x00 0x01 (4-byte start code)
-//!   - 0x00 0x00 0x01 (3-byte start code)
-//! We buffer incoming bytes and extract complete NAL units before emitting.
+//! H.264 Access-Unit Grouping (Option A / Approach A3):
+//! The raw H.264 stream from screenrecord is parsed at NAL unit boundaries and
+//! then GROUPED into complete access units (frames). One access unit = one
+//! Tauri event. The frontend uses the first NAL unit byte to classify the
+//! chunk as `key` (IDR slice present, NAL type 5) or `delta`.
+//!
+//! Access-unit boundaries:
+//!   - New SPS (NAL type 7)        ⇒ new access unit begins
+//!   - New PPS (NAL type 8)        ⇒ new access unit begins
+//!   - New IDR slice (NAL type 5)  ⇒ new access unit begins
+//!   - End-of-stream               ⇒ flush current accumulation
 
 use std::io::Read;
 use std::process::{Command, Stdio};
@@ -26,6 +31,28 @@ use tracing::{error, info, warn};
 
 /// Event name used to emit video frames to the frontend.
 pub const VIDEO_FRAME_EVENT: &str = "video-frame";
+
+/// Serialized payload for one access unit (one Tauri event).
+///
+/// `bytes` is the complete Annex-B byte stream for the access unit:
+///   - keyframe: SPS + PPS + SEI + IDR + slice NALs (each with its start code)
+///   - delta   : slice NAL(s) (each with its start code)
+///
+/// `key` is true iff the access unit contains an IDR slice (NAL type 5).
+/// `has_vcl` is true iff the access unit contains at least one VCL slice
+/// (NAL types 1 or 5), which means the AU is actually decodable.
+#[derive(Clone, serde::Serialize)]
+pub struct VideoFrameEvent<'a> {
+    pub bytes: &'a [u8],
+    pub key: bool,
+}
+
+/// H.264 NAL unit types we care about.
+const NAL_TYPE_SLICE: u8 = 1; // non-IDR slice (delta frame)
+const NAL_TYPE_IDR: u8 = 5; // IDR slice (key frame)
+const NAL_TYPE_SPS: u8 = 7; // Sequence Parameter Set
+const NAL_TYPE_PPS: u8 = 8; // Picture Parameter Set
+const NAL_TYPE_AUD: u8 = 9; // Access Unit Delimiter (Android's screenrecord emits these between frames)
 
 /// Video stream configuration
 const DEFAULT_BITRATE: i32 = 8_000_000;
@@ -40,12 +67,21 @@ pub struct VideoStream {
     pub screen_height: Arc<Mutex<u32>>,
     process: Option<std::process::Child>,
     stream_handle: Option<thread::JoinHandle<()>>,
-    /// Buffered data from screenrecord for NAL unit extraction
-    nal_buffer: Vec<u8>,
 }
 
 /// Find all NAL unit start positions in the buffer.
 /// Returns vector of (start_pos, end_pos) tuples.
+/// Find all NAL units in the buffer INCLUSIVE of their start code so callers
+/// can append them to an access-unit payload as the decoder expects them.
+///
+/// Returns a vector of `(start_code_pos, end_pos)` for each NAL unit where:
+///   * `start_code_pos` points at the FIRST byte of the start code
+///     (i.e. `0x00` of `00 00 00 01` or `00 00 01`).
+///   * `end_pos` points at the FIRST byte of the next start code, or at
+///     `data.len()` if this is the last NAL unit in the buffer.
+///
+/// So the slice `data[start_code_pos..end_pos]` is the complete NAL unit
+/// including its start code.
 fn find_nal_units(data: &[u8]) -> Vec<(usize, usize)> {
     let mut units = Vec::new();
     let mut i = 0;
@@ -65,13 +101,14 @@ fn find_nal_units(data: &[u8]) -> Vec<(usize, usize)> {
                 continue;
             };
 
-            // Find the end of this NAL unit (next start code or end of data)
-            let nal_start = i + start_code_len;
+            // Start code position is `i`; the first byte AFTER the start code
+            // (the NAL header) is at `i + start_code_len`. The NAL unit ends
+            // where the next start code begins, or at end of buffer.
+            let sc_pos = i;
             let mut nal_end = data.len();
 
-            // Search for next start code
-            let mut j = nal_start + 1;
-            while j < data.len() - 3 {
+            let mut j = sc_pos + start_code_len + 1;
+            while j < data.len().saturating_sub(3) {
                 if data[j] == 0x00 && data[j + 1] == 0x00 {
                     if data[j + 2] == 0x00 && data[j + 3] == 0x01 {
                         nal_end = j;
@@ -84,10 +121,10 @@ fn find_nal_units(data: &[u8]) -> Vec<(usize, usize)> {
                 j += 1;
             }
 
-            if nal_end > nal_start {
-                units.push((nal_start, nal_end));
+            if nal_end > sc_pos {
+                units.push((sc_pos, nal_end));
             }
-            i = nal_start;
+            i = sc_pos + start_code_len;
         } else {
             i += 1;
         }
@@ -105,7 +142,6 @@ impl VideoStream {
             screen_height: Arc::new(Mutex::new(1920)),
             process: None,
             stream_handle: None,
-            nal_buffer: Vec::new(),
         }
     }
 
@@ -166,7 +202,6 @@ impl VideoStream {
             .take()
             .ok_or_else(|| "Failed to capture stdout".to_string())?;
         self.process = Some(child);
-        self.nal_buffer.clear(); // Reset NAL buffer
         let mut stdout = stdout;
 
         // 5. Mark as running
@@ -190,102 +225,242 @@ impl VideoStream {
         );
 
         let handle = thread::spawn(move || {
-            info!("Video stream thread started for NAL unit extraction");
+            info!("Video stream thread started: grouping NALs into access units");
             let mut read_buf = vec![0u8; 65536];
-            let mut nal_buffer: Vec<u8> = Vec::with_capacity(1024 * 1024); // 1MB buffer
-            let mut nal_units_emitted = 0u64;
+            let mut stream_buf: Vec<u8> = Vec::with_capacity(2 * 1024 * 1024); // 2MB accumulate
+                                                                               // Current access unit being built. Holds ALL NAL units (with their
+                                                                               // start codes preserved) for one frame:
+                                                                               //   keyframe: SPS + PPS + SEI + IDR slice
+                                                                               //   delta   : slice NAL(s)
+            let mut current_au: Vec<u8> = Vec::with_capacity(512 * 1024);
+            // Per-AU flags:
+            //   au_has_idr = at least one IDR slice has been added
+            //   au_has_vcl = at least one VCL slice (type 1 or 5) has been added.
+            // We only flush an AU when au_has_vcl is true (so SPS/PPS-only AUs
+            // are not emitted as junk frames).
+            let mut au_has_idr = false;
+            let mut au_has_vcl = false;
+            let mut au_count = 0u64;
             let mut total_bytes_read = 0u64;
             let mut last_log_time = std::time::Instant::now();
+
+            // Skip past an H.264 start code (3 or 4 bytes) at the start of
+            // `buf` and return the offset of the NAL header byte. Returns None
+            // if no complete start code is present.
+            fn skip_start_code(buf: &[u8]) -> Option<usize> {
+                if buf.len() >= 4
+                    && buf[0] == 0x00
+                    && buf[1] == 0x00
+                    && buf[2] == 0x00
+                    && buf[3] == 0x01
+                {
+                    Some(4)
+                } else if buf.len() >= 3 && buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0x01 {
+                    Some(3)
+                } else {
+                    None
+                }
+            }
+
+            // NAL type is the low 5 bits of the NAL header byte.
+            fn nal_type(nal_header_byte: u8) -> u8 {
+                nal_header_byte & 0x1F
+            }
+
+            // Emit a completed AU as a structured event with bytes + key flag.
+            // Only emit if there is at least one VCL slice (decodable frame).
+            // SPS/PPS-only accumulations (no VCL) are dropped, never emitted.
+            fn flush_au(
+                au: &mut Vec<u8>,
+                has_idr: &mut bool,
+                has_vcl: &mut bool,
+                app: &AppHandle,
+                count: &mut u64,
+                last_log: &mut std::time::Instant,
+            ) {
+                if au.is_empty() || !*has_vcl {
+                    au.clear();
+                    *has_idr = false;
+                    *has_vcl = false;
+                    return;
+                }
+                let bytes = au.len();
+                let keyframe = *has_idr;
+                let payload = VideoFrameEvent {
+                    bytes: au.as_slice(),
+                    key: keyframe,
+                };
+                if let Err(e) = app.emit(VIDEO_FRAME_EVENT, payload) {
+                    error!("Failed to emit access unit ({} bytes): {}", bytes, e);
+                } else {
+                    *count += 1;
+                    if *count <= 3 || last_log.elapsed().as_secs() >= 5 {
+                        info!(
+                            "AU {} emitted: {} bytes, has_idr={}, has_vcl=true",
+                            count, bytes, keyframe
+                        );
+                        *last_log = std::time::Instant::now();
+                    }
+                }
+                au.clear();
+                *has_idr = false;
+                *has_vcl = false;
+            }
+
+            // Process whatever is currently in `stream_buf` as if it were the
+            // last read. Used by the normal read loop AND by the EOF path so
+            // any trailing bytes that formed complete NAL units get folded
+            // into the final AU before we flush.
+            //
+            // Returns whether the stream buffer is now "safe to drain" — i.e.
+            // the caller has accumulated all bytes that could ever arrive.
+            fn fold_buf_to_au(
+                stream_buf: &mut Vec<u8>,
+                current_au: &mut Vec<u8>,
+                au_has_idr: &mut bool,
+                au_has_vcl: &mut bool,
+                running: &Arc<Mutex<bool>>,
+                app: &AppHandle,
+                count: &mut u64,
+                last_log: &mut std::time::Instant,
+            ) {
+                let nal_units = find_nal_units(stream_buf);
+                if nal_units.is_empty() {
+                    return;
+                }
+
+                // During normal reads we keep the LAST NAL buffered. At EOF,
+                // however, there will be no more reads, so we instead process
+                // the trailing NAL too — it represents the tail of the final AU.
+                let processable = if *running.lock().unwrap() {
+                    nal_units.len().saturating_sub(1)
+                } else {
+                    nal_units.len()
+                };
+                if processable == 0 {
+                    return;
+                }
+
+                let mut consumed_to: usize = 0;
+                for (sc_pos, end) in nal_units.iter().take(processable) {
+                    consumed_to = *end;
+                    if sc_pos >= end {
+                        continue;
+                    }
+                    let header_offset_in_nal = match skip_start_code(&stream_buf[*sc_pos..*end]) {
+                        Some(off) => off,
+                        None => continue,
+                    };
+                    let header_pos = sc_pos + header_offset_in_nal;
+                    if header_pos >= *end {
+                        continue;
+                    }
+                    let nt = nal_type(stream_buf[header_pos]);
+
+                    if nt == NAL_TYPE_AUD {
+                        flush_au(current_au, au_has_idr, au_has_vcl, app, count, last_log);
+                        continue;
+                    }
+
+                    current_au.extend_from_slice(&stream_buf[*sc_pos..*end]);
+
+                    match nt {
+                        NAL_TYPE_SLICE => *au_has_vcl = true,
+                        NAL_TYPE_IDR => {
+                            *au_has_idr = true;
+                            *au_has_vcl = true;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if consumed_to > 0 {
+                    stream_buf.drain(..consumed_to);
+                }
+            }
 
             while *running.lock().unwrap() {
                 // Read from screenrecord stdout
                 match stdout.read(&mut read_buf) {
                     Ok(0) => {
                         info!(
-                            "Video stream EOF ({} NAL units, {} bytes read)",
-                            nal_units_emitted, total_bytes_read
+                            "Video stream EOF ({} access units emitted, {} bytes read)",
+                            au_count, total_bytes_read
                         );
-                        // Emit any remaining buffered data as final NAL unit
-                        if !nal_buffer.is_empty() {
-                            if let Err(e) = app_handle.emit(VIDEO_FRAME_EVENT, &nal_buffer) {
-                                error!("Failed to emit final NAL unit: {}", e);
-                            } else {
-                                nal_units_emitted += 1;
-                                info!("Emitted final NAL unit ({} bytes)", nal_buffer.len());
-                            }
+                        // FIX 2: any remaining bytes in stream_buf may form the
+                        // tail of the last frame. Process them by clearing
+                        // running = false, then fold_buf_to_au will pick up
+                        // the trailing NALs because we no longer keep the last
+                        // one buffered when shutting down.
+                        *running.lock().unwrap() = false;
+                        fold_buf_to_au(
+                            &mut stream_buf,
+                            &mut current_au,
+                            &mut au_has_idr,
+                            &mut au_has_vcl,
+                            &running,
+                            &app_handle,
+                            &mut au_count,
+                            &mut last_log_time,
+                        );
+                        // If the very last NAL still sits in stream_buf (no
+                        // trailing start code ever arrived), it can't be
+                        // classified as a complete unit — keep it in current_au
+                        // so the final flush_au below can decide what to do.
+                        if !stream_buf.is_empty() {
+                            warn!(
+                                "EOF: {} residual bytes in stream_buf, folding into last AU",
+                                stream_buf.len()
+                            );
+                            current_au.extend_from_slice(stream_buf.as_slice());
+                            stream_buf.clear();
                         }
+                        flush_au(
+                            &mut current_au,
+                            &mut au_has_idr,
+                            &mut au_has_vcl,
+                            &app_handle,
+                            &mut au_count,
+                            &mut last_log_time,
+                        );
                         break;
                     }
                     Ok(n) => {
                         total_bytes_read += n as u64;
 
-                        // Append new data to NAL buffer
-                        nal_buffer.extend_from_slice(&read_buf[..n]);
+                        // Append new data to stream buffer
+                        stream_buf.extend_from_slice(&read_buf[..n]);
 
-                        // Find and extract complete NAL units
-                        let nal_units = find_nal_units(&nal_buffer);
-
-                        if nal_units.is_empty() {
-                            // No complete NAL units yet, keep buffering
-                            // If buffer is getting too large, something is wrong
-                            if nal_buffer.len() > 5 * 1024 * 1024 {
-                                warn!("NAL buffer exceeds 5MB, clearing. Data may be corrupted.");
-                                nal_buffer.clear();
-                            }
+                        if stream_buf.len() > 10 * 1024 * 1024 {
+                            warn!("Stream buffer exceeds 10MB, clearing. Stream may be corrupted.");
+                            stream_buf.clear();
+                            current_au.clear();
+                            au_has_idr = false;
+                            au_has_vcl = false;
                             continue;
                         }
 
-                        // Extract complete NAL units (all except the last incomplete one)
-                        let last_nal_end = nal_units.last().unwrap().1;
-
-                        for (start, end) in nal_units.iter().take(nal_units.len() - 1) {
-                            let start_idx = *start;
-                            let end_idx = *end;
-                            let nal_data = &nal_buffer[start_idx..end_idx];
-                            if !nal_data.is_empty() {
-                                if let Err(e) = app_handle.emit(VIDEO_FRAME_EVENT, nal_data) {
-                                    error!("Failed to emit NAL unit: {}", e);
-                                    break;
-                                }
-                                nal_units_emitted += 1;
-
-                                // Log first few NAL units and periodically
-                                let elapsed = last_log_time.elapsed();
-                                if nal_units_emitted <= 5 || elapsed.as_secs() >= 5 {
-                                    let nal_type = nal_data.first().map(|b| b & 0x1F).unwrap_or(0);
-                                    info!(
-                                        "NAL unit {} emitted (type={}, {} bytes)",
-                                        nal_units_emitted,
-                                        nal_type,
-                                        nal_data.len()
-                                    );
-                                    last_log_time = std::time::Instant::now();
-                                }
-                            }
-                        }
-
-                        // Keep incomplete NAL unit in buffer for next read
-                        if last_nal_end < nal_buffer.len() {
-                            let remaining = nal_buffer[last_nal_end..].to_vec();
-                            nal_buffer.clear();
-                            nal_buffer.extend(remaining);
-                        } else {
-                            nal_buffer.clear();
-                        }
+                        fold_buf_to_au(
+                            &mut stream_buf,
+                            &mut current_au,
+                            &mut au_has_idr,
+                            &mut au_has_vcl,
+                            &running,
+                            &app_handle,
+                            &mut au_count,
+                            &mut last_log_time,
+                        );
                     }
                     Err(e) => {
-                        error!(
-                            "Stream read error after {} NAL units: {}",
-                            nal_units_emitted, e
-                        );
+                        error!("Stream read error after {} access units: {}", au_count, e);
                         break;
                     }
                 }
             }
 
             info!(
-                "Video stream ended: {} NAL units emitted, {} bytes total",
-                nal_units_emitted,
+                "Video stream ended: {} access units emitted, {} bytes total read",
+                au_count,
                 total_bytes_read / 1_048_576
             );
             let _ = app_handle.emit("video-stream-ended", ());

@@ -119,13 +119,20 @@ fn ensure_scrcpy_server() -> Result<PathBuf, String> {
         return Ok(path);
     }
 
-    info!("Downloading scrcpy-server...");
+    info!("Downloading scrcpy-server v{}...", SCRCPY_SERVER_VERSION);
 
-    // Download from GitHub
+    // URL MUST match SCRCPY_SERVER_VERSION exactly. v4.x artifacts have no
+    // .jar extension in the GitHub release, so the trailing `.jar` is NOT
+    // appended on the server side. Older (e.g. v2.x) releases DO have `.jar`.
+    let download_url = format!(
+        "https://github.com/Genymobile/scrcpy/releases/download/v{}/scrcpy-server-v{}",
+        SCRCPY_SERVER_VERSION, SCRCPY_SERVER_VERSION
+    );
+
     let output = Command::new("curl")
         .args([
             "-sL",
-            "https://github.com/Genymobile/scrcpy/releases/download/v2.1.1/scrcpy-server-v2.1.1",
+            &download_url,
             "-o",
             path.to_str().unwrap_or("/tmp/scrcpy-server.jar"),
         ])
@@ -133,10 +140,19 @@ fn ensure_scrcpy_server() -> Result<PathBuf, String> {
 
     match output {
         Ok(out) if out.status.success() && path.exists() => {
-            info!("Downloaded scrcpy-server");
+            info!("Downloaded scrcpy-server v{}", SCRCPY_SERVER_VERSION);
             Ok(path)
         }
-        _ => Err("Failed to download scrcpy-server".to_string()),
+        _ => {
+            let stderr = match output {
+                Ok(out) => String::from_utf8_lossy(&out.stderr).to_string(),
+                Err(e) => e.to_string(),
+            };
+            Err(format!(
+                "Failed to download scrcpy-server v{} from {}: {}",
+                SCRCPY_SERVER_VERSION, download_url, stderr
+            ))
+        }
     }
 }
 
@@ -187,13 +203,18 @@ impl ScrcpyServer {
         }
     }
 
+    /// Get the local port used for port forwarding
+    pub fn get_local_port(&self) -> u16 {
+        self.local_port
+    }
+
     /// Get debug info from start()
     pub fn get_debug_info(&self) -> &str {
         &self.debug_info
     }
 
     /// Start scrcpy-server streaming
-    pub fn start(&mut self) -> Result<String, String> {
+    pub fn start(&mut self) -> Result<bool, String> {
         let adb_path = find_adb();
 
         // Step 1: Kill any existing scrcpy server on device
@@ -297,14 +318,27 @@ impl ScrcpyServer {
         }
 
         // Step 6: Start scrcpy-server on device
-        // Correct scrcpy-server command format for v2.x+:
-        // CLASSPATH=/path/to/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server <version> <options>
+        // scrcpy v4.1 server command (verified against official docs):
+        //   CLASSPATH=/data/local/tmp/scrcpy-server.jar \
+        //     app_process / com.genymobile.scrcpy.Server <version> \
+        //     [key=value options]
+        // Valid keys (from Options.java): video_bit_rate, max_fps, max_size,
+        //   tunnel_forward, video, audio, send_device_meta, etc.
+        // The OLD keys (bitrate/maxFps/maxSize/tunnel) caused server to
+        // immediately exit with IllegalArgumentException("Invalid key=value pair")
         info!("Starting scrcpy-server on device");
 
-        // Use key=value format for scrcpy v2.x+
+        // Correct v4.1 argument names (lowercase, underscore-separated).
+        // tunnel_forward=false means the server uses the existing
+        // `adb forward localabstract:scrcpy` for TCP instead of trying to
+        // connect back to a reverse adb tunnel.
         let start_cmd = format!(
-            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} bitrate={} maxFps={} maxSize={} tunnel=true",
-            device_server_path, SCRCPY_SERVER_VERSION, DEFAULT_BITRATE, DEFAULT_MAX_FPS, DEFAULT_MAX_WIDTH
+            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} video_bit_rate={} max_fps={} max_size={} tunnel_forward=false",
+            device_server_path,
+            SCRCPY_SERVER_VERSION,
+            DEFAULT_BITRATE,
+            DEFAULT_MAX_FPS,
+            DEFAULT_MAX_WIDTH
         );
         info!("scrcpy-server command: {}", start_cmd);
         self.debug_info += &format!("\nscrcpy-server command: {}", start_cmd);
@@ -326,22 +360,27 @@ impl ScrcpyServer {
             .args(["-s", &self.serial, "shell", "ps", "-A"])
             .output();
 
-        if let Ok(out) = ps_result {
+        let process_alive = if let Ok(out) = ps_result {
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout.contains("scrcpy") {
                 info!("scrcpy-server process found on device");
                 self.debug_info += "\nscrcpy-server process found on device";
+                true
             } else {
                 warn!(
                     "scrcpy-server process NOT found on device! stdout: {}",
                     stdout
                 );
                 self.debug_info += "\nscrcpy-server process NOT found on device!";
+                false
             }
-        }
+        } else {
+            warn!("Could not run `ps -A` to check scrcpy-server process");
+            false
+        };
 
-        // Return the WebSocket URL for frontend
-        Ok(format!("ws://127.0.0.1:{}", port))
+        // Return whether the scrcpy-server process is actually alive on device
+        Ok(process_alive)
     }
 
     fn find_available_port(&self) -> u16 {
@@ -368,10 +407,16 @@ impl ScrcpyServer {
     /// This allows the frontend to render frames in the #mirror-screen div.
     ///
     /// Returns (width, height) on success.
-    pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32), String> {
+    pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32, bool), String> {
         // Start scrcpy-server (uses existing start() logic)
         // Debug info is stored in self.debug_info and should be emitted by caller
-        self.start()?;
+        let process_alive = self.start()?;
+
+        // If start() returned false (process not alive on device), return
+        // immediately without spawning the frame reader thread.
+        if !process_alive {
+            return Ok((0, 0, false));
+        }
 
         let port = self.local_port;
         let serial = self.serial.clone();
@@ -587,8 +632,8 @@ impl ScrcpyServer {
             info!("scrcpy frame reader ended: {} frames", frame_count);
         });
 
-        // Return dimensions (will be updated by frame reader thread)
-        Ok((DEFAULT_MAX_WIDTH as u32, 0)) // Will be updated when meta is received
+        // Return dimensions and true process_alive (will be updated by frame reader thread)
+        Ok((DEFAULT_MAX_WIDTH as u32, 0, true)) // Will be updated when meta is received
     }
 
     /// Stop the frame reader thread
@@ -735,10 +780,15 @@ pub fn create_scrcpy_server(serial: String) -> ScrcpyServerManager {
     Arc::new(TokioMutex::new(ScrcpyServer::new(serial)))
 }
 
-/// Start mirror and return WebSocket URL
+/// Start mirror (legacy compatibility wrapper)
+/// Returns the local WebSocket URL on success, an error message on failure.
 pub fn start_mirror_ws(serial: String) -> Result<String, String> {
     let mut server = ScrcpyServer::new(serial);
-    server.start()
+    if server.start()? {
+        Ok(format!("ws://127.0.0.1:{}", server.local_port))
+    } else {
+        Err("scrcpy-server process not alive on device".to_string())
+    }
 }
 
 /// Stop mirror
