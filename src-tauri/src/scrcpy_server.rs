@@ -280,6 +280,7 @@ impl ScrcpyServer {
             "CLASSPATH={} app_process / {} --bit-rate={} --max-fps={} --max-size={}",
             device_server_path, port, DEFAULT_BITRATE, DEFAULT_MAX_FPS, DEFAULT_MAX_WIDTH
         );
+        info!("scrcpy-server command: {}", start_cmd);
 
         let child = Command::new(&adb_path)
             .args(["-s", &self.serial, "shell", "nohup", &start_cmd])
@@ -291,7 +292,7 @@ impl ScrcpyServer {
         self.process = Some(child);
 
         // Wait for server to start
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(2));
 
         // Return the WebSocket URL for frontend
         Ok(format!("ws://127.0.0.1:{}", port))
@@ -406,7 +407,9 @@ impl ScrcpyServer {
             );
 
             // Read frames
+            info!("Starting frame read loop...");
             let mut frame_count = 0u64;
+            let mut consecutive_timeouts = 0u32;
             loop {
                 if !*running_clone.lock().unwrap() {
                     info!("scrcpy frame reader stopped");
@@ -415,6 +418,7 @@ impl ScrcpyServer {
 
                 match read_packet(&mut stream) {
                     Ok(packet) => {
+                        consecutive_timeouts = 0;
                         frame_count += 1;
                         // Emit frame data via Tauri event
                         if let Err(e) = app_clone.emit(ScrcpyServer::SCRCPY_FRAME_EVENT, &packet) {
@@ -422,12 +426,21 @@ impl ScrcpyServer {
                             break;
                         }
 
-                        if frame_count <= 3 || frame_count.is_multiple_of(100) {
-                            info!("scrcpy frame {} ({} bytes)", frame_count, packet.len());
+                        // Log first few frames and periodically
+                        if frame_count <= 5 || frame_count.is_multiple_of(50) {
+                            info!("scrcpy frame {} emitted ({} bytes)", frame_count, packet.len());
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // Timeout, continue checking running flag
+                        consecutive_timeouts += 1;
+                        if consecutive_timeouts == 1 {
+                            info!("scrcpy: waiting for frames...");
+                        }
+                        if consecutive_timeouts > 100 {
+                            warn!("scrcpy: no frames received for {} timeouts, stopping", consecutive_timeouts);
+                            break;
+                        }
                         continue;
                     }
                     Err(e) => {

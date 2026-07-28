@@ -1899,7 +1899,10 @@ class ScrcpyVideoStream {
 			});
 
 			this.decoder.decode(chunk);
-			addLog("debug", `[SCRCPY] Frame submitted for decode (${data.byteLength} bytes)`);
+			addLog(
+				"debug",
+				`[SCRCPY] Frame submitted for decode (${data.byteLength} bytes)`,
+			);
 		} catch (error) {
 			addLog("warn", `[SCRCPY] Decode error: ${error}`);
 		}
