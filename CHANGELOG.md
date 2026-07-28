@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.16](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.15...companion/v1.2.16) (2026-07-28)
+
 ### [1.2.15](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.14...companion/v1.2.15) (2026-07-28)
 
 
