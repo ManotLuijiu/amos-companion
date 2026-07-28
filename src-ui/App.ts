@@ -1234,7 +1234,10 @@ async function handleScrcpyToggle(): Promise<void> {
 
 	if (toggle.checked) {
 		if (!scrcpyAvailable) {
-			addLog("warn", "scrcpy-server not found. Install scrcpy-server.jar to enable high-performance mirroring.");
+			addLog(
+				"warn",
+				"scrcpy-server not found. Install scrcpy-server.jar to enable high-performance mirroring.",
+			);
 			toggle.checked = false;
 			scrcpyEnabled = false;
 			return;
@@ -1246,19 +1249,34 @@ async function handleScrcpyToggle(): Promise<void> {
 		// If mirror is currently running, restart it with scrcpy-server
 		if (currentMirroringDevice) {
 			addLog("info", `[MIRROR] Restarting mirror with scrcpy-server mode...`);
-			const device: DeviceInfo = selectedDevice || { serial: currentMirroringDevice, model: "", status: "device", resolution: null, battery: null };
+			const device: DeviceInfo = selectedDevice || {
+				serial: currentMirroringDevice,
+				model: "",
+				status: "device",
+				resolution: null,
+				battery: null,
+			};
 			await stopMirrorInternal();
 			await startMirror(device);
 		}
 	} else {
 		// Disable scrcpy-server mode
 		scrcpyEnabled = false;
-		addLog("info", "[SCRCPY] scrcpy-server mode disabled - using ADB screenrecord");
+		addLog(
+			"info",
+			"[SCRCPY] scrcpy-server mode disabled - using ADB screenrecord",
+		);
 
 		// If mirror is currently running with scrcpy-server, restart with ADB
 		if (currentMirroringDevice && scrcpyServerStream) {
 			addLog("info", `[MIRROR] Restarting mirror with ADB mode...`);
-			const device: DeviceInfo = selectedDevice || { serial: currentMirroringDevice, model: "", status: "device", resolution: null, battery: null };
+			const device: DeviceInfo = selectedDevice || {
+				serial: currentMirroringDevice,
+				model: "",
+				status: "device",
+				resolution: null,
+				battery: null,
+			};
 			await stopMirrorInternal();
 			await startMirror(device);
 		}

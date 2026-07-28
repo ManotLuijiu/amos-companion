@@ -31,7 +31,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::adb::{find_adb, run_adb};
 
@@ -78,20 +78,36 @@ fn parse_device_meta(meta: &[u8]) -> (u32, u32) {
 /// Path to scrcpy-server JAR
 fn get_scrcpy_server_path() -> PathBuf {
     let candidates = vec![
+        // Try relative to current dir (for dev)
         PathBuf::from(".").join("scrcpy-server"),
         PathBuf::from("..").join("scrcpy-server"),
+        // Try relative to cargo manifest (for release builds)
+        std::env::current_dir()
+            .unwrap_or_default()
+            .join("scrcpy-server"),
+        // Common locations
+        PathBuf::from("/usr/local/share/scrcpy-server.jar"),
+        PathBuf::from("/opt/scrcpy-server/scrcpy-server.jar"),
+        // Temp dir (if previously downloaded)
         std::env::temp_dir().join("scrcpy-server.jar"),
     ];
 
-    for path in candidates {
-        if path.join("scrcpy-server.jar").exists() {
-            return path.join("scrcpy-server.jar");
-        }
-        if path.exists() && path.to_string_lossy().ends_with(".jar") {
-            return path;
+    for path in &candidates {
+        let jar_path = if path.is_dir() {
+            path.join("scrcpy-server.jar")
+        } else {
+            path.clone()
+        };
+        if jar_path.exists() {
+            info!("Found scrcpy-server at: {:?}", jar_path);
+            return jar_path;
         }
     }
-    std::env::temp_dir().join("scrcpy-server.jar")
+
+    // Return temp path even if not exists (will try to download)
+    let download_path = std::env::temp_dir().join("scrcpy-server.jar");
+    warn!("scrcpy-server not found in any candidate paths, will try to download");
+    download_path
 }
 
 /// Get or download scrcpy-server
@@ -341,21 +357,34 @@ impl ScrcpyServer {
             };
 
             // Set read timeout to allow checking running flag
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(100)));
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
+
+            info!("Waiting for scrcpy device meta...");
 
             // Read device meta (first packet)
+            // scrcpy-server sends device meta as first packet
             let meta = match read_packet(&mut stream) {
                 Ok(data) => data,
                 Err(e) => {
-                    error!("Failed to read scrcpy device meta: {}", e);
-                    return;
+                    warn!("Failed to read scrcpy device meta: {} - may be sending raw H264", e);
+                    // Try to continue anyway - might get H264 directly
+                    vec![]
                 }
             };
 
-            info!("scrcpy device meta received ({} bytes)", meta.len());
+            if !meta.is_empty() {
+                info!("scrcpy device meta received ({} bytes): {:?}", meta.len(), String::from_utf8_lossy(&meta[..meta.len().min(200)]));
+            } else {
+                info!("No device meta received, assuming raw H264 stream");
+            }
 
             // Parse meta to get dimensions
-            let (width, height) = parse_device_meta(&meta);
+            let (width, height) = if meta.is_empty() {
+                // Default dimensions if no meta
+                (1920u32, 1080u32)
+            } else {
+                parse_device_meta(&meta)
+            };
             info!("scrcpy device screen: {}x{}", width, height);
 
             // Emit dimensions
