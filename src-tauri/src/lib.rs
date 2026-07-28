@@ -681,18 +681,20 @@ async fn mirror_swipe(
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StreamInfo {
-    pub ws_url: String,
-    pub port: u16,
+    pub width: u32,
+    pub height: u32,
     pub running: bool,
+    pub event_name: String,
 }
 
 #[tauri::command]
 async fn start_video_stream(
     serial: String,
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<StreamInfo, String> {
     info!("Starting video stream for device: {}", serial);
-    
+
     // Stop any existing stream
     {
         let mut stream = state.video_stream.lock().await;
@@ -701,24 +703,27 @@ async fn start_video_stream(
         }
         *stream = None;
     }
-    
-    // Create and start new stream
+
+    // Create and start new stream (uses Tauri events, not WebSocket)
     let mut video_stream = VideoStream::new(serial);
-    let port = video_stream.start()?;
-    let ws_url = format!("ws://127.0.0.1:{}", port);
-    
+    let (width, height) = video_stream.start(&app)?;
+
     // Store in state
     {
         let mut stream = state.video_stream.lock().await;
         *stream = Some(video_stream);
     }
-    
-    info!("Video stream started on port {}", port);
-    
+
+    info!(
+        "Video stream started via Tauri events ({}x{})",
+        width, height
+    );
+
     Ok(StreamInfo {
-        ws_url,
-        port,
+        width,
+        height,
         running: true,
+        event_name: video_stream::VIDEO_FRAME_EVENT.to_string(),
     })
 }
 
@@ -739,13 +744,17 @@ async fn stop_video_stream(state: tauri::State<'_, AppState>) -> Result<(), Stri
 #[tauri::command]
 async fn get_stream_info(state: tauri::State<'_, AppState>) -> Result<Option<StreamInfo>, String> {
     let stream = state.video_stream.lock().await;
-    
+
     match &*stream {
-        Some(s) => Ok(Some(StreamInfo {
-            ws_url: s.get_ws_url(),
-            port: s.port,
-            running: s.is_running(),
-        })),
+        Some(s) => {
+            let (width, height) = s.get_dimensions();
+            Ok(Some(StreamInfo {
+                width,
+                height,
+                running: s.is_running(),
+                event_name: video_stream::VIDEO_FRAME_EVENT.to_string(),
+            }))
+        }
         None => Ok(None),
     }
 }

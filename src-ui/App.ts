@@ -1476,9 +1476,10 @@ let videoStream: VideoStream | null = null;
 let screenshotPollingInterval: ReturnType<typeof setInterval> | null = null;
 const MIRROR_REFRESH_MS = 200; // 5 FPS fallback
 
-// WebCodecs-based video player
+// WebCodecs-based video player using Tauri events (no WebSocket needed).
+// This bypasses the macOS sandbox issue that blocked WebSocket connections.
 class VideoStream {
-	private ws: WebSocket | null = null;
+	private unlistenFrame: (() => void) | null = null;
 	private decoder: globalThis.VideoDecoder | null = null;
 	private canvas: HTMLCanvasElement | null = null;
 	private ctx: CanvasRenderingContext2D | null = null;
@@ -1489,63 +1490,56 @@ class VideoStream {
 	constructor(private serial: string) {}
 
 	async start(): Promise<void> {
-		// Get stream info from Rust backend
+		// Start backend stream via Tauri command
 		try {
 			const info = await invoke<{
-				ws_url: string;
-				port: number;
+				width: number;
+				height: number;
 				running: boolean;
+				event_name: string;
 			}>("start_video_stream", { serial: this.serial });
 
 			if (!info.running) {
 				throw new Error("Stream failed to start");
 			}
 
-			this.startWebSocket(info.ws_url);
+			this.width = info.width;
+			this.height = info.height;
+
+			// Create canvas for rendering
+			this.canvas = document.createElement("canvas");
+			this.canvas.width = this.width;
+			this.canvas.height = this.height;
+			this.ctx = this.canvas.getContext("2d");
+
+			this.running = true;
+			this.subscribeToFrames();
+			addLog(
+				"info",
+				`Video stream started (${this.width}x${this.height}) via Tauri events`,
+			);
 		} catch (error) {
 			addLog("error", `Failed to start video stream: ${error}`);
 			throw error;
 		}
 	}
 
-	private startWebSocket(wsUrl: string): void {
-		this.running = true;
+	private async subscribeToFrames(): Promise<void> {
+		// Unsubscribe from any previous subscription
+		if (this.unlistenFrame) {
+			this.unlistenFrame();
+			this.unlistenFrame = null;
+		}
 
-		// Create canvas for rendering
-		this.canvas = document.createElement("canvas");
-		this.canvas.width = this.width;
-		this.canvas.height = this.height;
-		this.ctx = this.canvas.getContext("2d");
-
-		// Connect WebSocket
-		this.ws = new WebSocket(wsUrl);
-
-		this.ws.binaryType = "arraybuffer";
-
-		this.ws.onopen = () => {
-			addLog("info", "Video stream connected");
-		};
-
-		this.ws.onmessage = (event) => {
-			if (event.data instanceof ArrayBuffer) {
-				this.handleFrame(event.data);
-			}
-		};
-
-		this.ws.onerror = (error) => {
-			addLog("error", `WebSocket error: ${error}`);
-		};
-
-		this.ws.onclose = () => {
-			if (this.running) {
-				addLog("warn", "Video stream disconnected, retrying...");
-				setTimeout(() => {
-					if (this.running) {
-						this.startWebSocket(wsUrl);
-					}
-				}, 1000);
-			}
-		};
+		// Use Tauri's event system instead of WebSocket
+		// This is the proper way for Tauri 2.x - bypasses sandbox restrictions
+		const { listen } = await import("@tauri-apps/api/event");
+		const unlisten = await listen<number[]>("video-frame", (event) => {
+			if (!this.running) return;
+			const data = new Uint8Array(event.payload).buffer;
+			this.handleFrame(data);
+		});
+		this.unlistenFrame = unlisten;
 	}
 
 	private handleFrame(data: ArrayBuffer): void {
@@ -1644,9 +1638,10 @@ class VideoStream {
 	stop(): void {
 		this.running = false;
 
-		if (this.ws) {
-			this.ws.close();
-			this.ws = null;
+		// Unsubscribe from Tauri event
+		if (this.unlistenFrame) {
+			this.unlistenFrame();
+			this.unlistenFrame = null;
 		}
 
 		if (this.decoder) {
