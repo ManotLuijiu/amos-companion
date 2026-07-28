@@ -403,11 +403,12 @@ impl ScrcpyServer {
                     "port": port,
                     "width": width,
                     "height": height,
+                    "message": "Starting frame read loop...",
                 }),
             );
 
             // Read frames
-            info!("Starting frame read loop...");
+            info!("Starting frame read loop..."); let _ = app_clone.emit("scrcpy-debug", &format!("Starting frame read loop... port={}", port));
             let mut frame_count = 0u64;
             let mut consecutive_timeouts = 0u32;
             loop {
@@ -428,7 +429,11 @@ impl ScrcpyServer {
 
                         // Log first few frames and periodically
                         if frame_count <= 5 || frame_count.is_multiple_of(50) {
-                            info!("scrcpy frame {} emitted ({} bytes)", frame_count, packet.len());
+                            info!(
+                                "scrcpy frame {} emitted ({} bytes)",
+                                frame_count,
+                                packet.len()
+                            );
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -436,9 +441,14 @@ impl ScrcpyServer {
                         consecutive_timeouts += 1;
                         if consecutive_timeouts == 1 {
                             info!("scrcpy: waiting for frames...");
+                            let _ = app_clone.emit("scrcpy-debug", "Waiting for frames...");
                         }
                         if consecutive_timeouts > 100 {
-                            warn!("scrcpy: no frames received for {} timeouts, stopping", consecutive_timeouts);
+                            warn!(
+                                "scrcpy: no frames received for {} timeouts, stopping",
+                                consecutive_timeouts
+                            );
+                            let _ = app_clone.emit("scrcpy-debug", &format!("No frames for {} timeouts, stopping", consecutive_timeouts));
                             break;
                         }
                         continue;

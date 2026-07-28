@@ -1850,13 +1850,22 @@ class ScrcpyVideoStream {
 	private async subscribeToEvents(): Promise<void> {
 		const { listen } = await import("@tauri-apps/api/event");
 
+		// Listen for debug messages from backend
+		await listen<string>("scrcpy-debug", (event) => {
+			addLog("info", `[SCRCPY] ${event.payload}`);
+		});
+
 		// Listen for stream started event with dimensions
 		this.unlistenStarted = await listen<{
 			serial: string;
 			port: number;
 			width?: number;
 			height?: number;
+			message?: string;
 		}>("scrcpy-stream-started", (event) => {
+			if (event.payload.message) {
+				addLog("info", `[SCRCPY] ${event.payload.message}`);
+			}
 			if (event.payload.width && event.payload.height) {
 				this.width = event.payload.width;
 				this.height = event.payload.height;
