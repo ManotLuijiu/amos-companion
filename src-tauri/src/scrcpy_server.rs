@@ -243,7 +243,8 @@ impl ScrcpyServer {
         let port = self.find_available_port();
         self.local_port = port;
 
-        // Step 5: Forward local port to device
+        // Step 5: Forward local TCP port to device's scrcpy-server abstract socket
+        // scrcpy-server listens on abstract socket "scrcpy", not TCP
         let _ = Command::new(&adb_path)
             .args([
                 "-s",
@@ -260,7 +261,7 @@ impl ScrcpyServer {
                 &self.serial,
                 "forward",
                 &format!("tcp:{}", port),
-                &format!("tcp:{}", port),
+                &"localabstract:scrcpy".to_string(),
             ])
             .output();
 
@@ -271,6 +272,7 @@ impl ScrcpyServer {
                     String::from_utf8_lossy(&out.stderr)
                 ));
             }
+            info!("Port forwarding: tcp:{} -> localabstract:scrcpy", port);
         }
 
         // Step 6: Start scrcpy-server on device
