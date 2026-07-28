@@ -261,18 +261,23 @@ impl ScrcpyServer {
                 &self.serial,
                 "forward",
                 &format!("tcp:{}", port),
-                &"localabstract:scrcpy".to_string(),
+                "localabstract:scrcpy",
             ])
             .output();
 
         if let Ok(out) = forward_result {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            info!("Port forward stdout: {}, stderr: {}", stdout.trim(), stderr.trim());
             if !out.status.success() {
                 return Err(format!(
                     "Failed to forward port: {}",
-                    String::from_utf8_lossy(&out.stderr)
+                    stderr
                 ));
             }
             info!("Port forwarding: tcp:{} -> localabstract:scrcpy", port);
+        } else {
+            error!("Port forward command failed to execute");
         }
 
         // Step 6: Start scrcpy-server on device
@@ -295,6 +300,20 @@ impl ScrcpyServer {
 
         // Wait for server to start
         thread::sleep(Duration::from_secs(2));
+
+        // Verify scrcpy-server is running on device
+        let ps_result = Command::new(&adb_path)
+            .args(["-s", &self.serial, "shell", "ps", "-A"])
+            .output();
+
+        if let Ok(out) = ps_result {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if stdout.contains("scrcpy") {
+                info!("scrcpy-server process found on device");
+            } else {
+                warn!("scrcpy-server process NOT found on device! stdout: {}", stdout);
+            }
+        }
 
         // Return the WebSocket URL for frontend
         Ok(format!("ws://127.0.0.1:{}", port))
