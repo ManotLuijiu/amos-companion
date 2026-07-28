@@ -1478,6 +1478,10 @@ const MIRROR_REFRESH_MS = 200; // 5 FPS fallback
 
 // WebCodecs-based video player using Tauri events (no WebSocket needed).
 // This bypasses the macOS sandbox issue that blocked WebSocket connections.
+// Key improvements over raw chunk approach:
+// 1. Waits for actual first frame to render before declaring success
+// 2. Provides automatic fallback to screenshots if video doesn't render
+// 3. Tracks decode success to distinguish stream-start from frame-rendered
 class VideoStream {
 	private unlistenFrame: (() => void) | null = null;
 	private decoder: globalThis.VideoDecoder | null = null;
@@ -1486,10 +1490,25 @@ class VideoStream {
 	private running = false;
 	private width = 1080;
 	private height = 1920;
+	private _firstFrameRendered = false;
+	private _frameRenderResolve: ((value: boolean) => void) | null = null;
+	private _firstFrameTimeout: ReturnType<typeof setTimeout> | null = null;
+	/** Timeout in ms to wait for first frame before giving up */
+	private static readonly FIRST_FRAME_TIMEOUT_MS = 5000;
 
 	constructor(private serial: string) {}
 
-	async start(): Promise<void> {
+	/** Returns true once the first frame has been successfully rendered */
+	get firstFrameRendered(): boolean {
+		return this._firstFrameRendered;
+	}
+
+	/**
+	 * Start the video stream and wait for the first frame to render.
+	 * Returns a promise that resolves to true if a frame rendered within the timeout,
+	 * or false if the stream failed or timed out.
+	 */
+	async start(): Promise<boolean> {
 		// Start backend stream via Tauri command
 		try {
 			const info = await invoke<{
@@ -1518,10 +1537,37 @@ class VideoStream {
 				"info",
 				`Video stream started (${this.width}x${this.height}) via Tauri events`,
 			);
+
+			// Wait for first frame with timeout - this is the critical fix
+			// We don't declare success until we actually have a rendered frame
+			return this.waitForFirstFrame();
 		} catch (error) {
 			addLog("error", `Failed to start video stream: ${error}`);
-			throw error;
+			return false;
 		}
+	}
+
+	/**
+	 * Wait for the first frame to be rendered, with a timeout.
+	 * Returns true if first frame rendered within timeout, false otherwise.
+	 */
+	private waitForFirstFrame(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this._frameRenderResolve = resolve;
+
+			// Set timeout for first frame
+			this._firstFrameTimeout = setTimeout(() => {
+				if (!this._firstFrameRendered) {
+					addLog(
+						"warn",
+						`Video stream: No frame rendered within ${VideoStream.FIRST_FRAME_TIMEOUT_MS}ms, will fall back to screenshots`,
+					);
+					// Resolve false - video stream isn't working, fall back to screenshots
+					this._frameRenderResolve?.(false);
+					this._frameRenderResolve = null;
+				}
+			}, VideoStream.FIRST_FRAME_TIMEOUT_MS);
+		});
 	}
 
 	private async subscribeToFrames(): Promise<void> {
@@ -1591,10 +1637,26 @@ class VideoStream {
 
 					// Update image element
 					this.updateDisplay();
+
+					// Mark first frame as rendered - this is the success signal
+					if (!this._firstFrameRendered) {
+						this._firstFrameRendered = true;
+						addLog("info", "First video frame rendered successfully");
+
+						// Clear timeout and resolve the wait promise
+						if (this._firstFrameTimeout) {
+							clearTimeout(this._firstFrameTimeout);
+							this._firstFrameTimeout = null;
+						}
+						if (this._frameRenderResolve) {
+							this._frameRenderResolve(true);
+							this._frameRenderResolve = null;
+						}
+					}
 				}
 			},
 			error: (error) => {
-				addLog("error", `Decoder error: ${error}`);
+				addLog("warn", `Decoder error: ${error}`);
 			},
 		});
 
@@ -1729,8 +1791,8 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 
 /**
  * Try to start real video streaming (screenrecord + WebCodecs).
- * Returns true on success, false if video stream failed (caller should
- * fall back to screenshot polling).
+ * Returns true only if a frame was actually rendered (first-frame timeout expired -> false).
+ * The caller should fall back to screenshot polling if this returns false.
  */
 async function tryStartVideoStream(serial: string): Promise<boolean> {
 	if (videoStream) {
@@ -1740,11 +1802,20 @@ async function tryStartVideoStream(serial: string): Promise<boolean> {
 
 	try {
 		videoStream = new VideoStream(serial);
-		await videoStream.start();
-		// VideoStream renders into the same #mirror-screen img element via
-		// canvas.toDataURL(), so we don't need to hide anything here.
-		addLog("info", `Real video stream started for ${serial}`);
-		return true;
+		// start() now waits for first frame with a 5-second timeout
+		// It returns true only if a frame actually rendered
+		const frameRendered = await videoStream.start();
+
+		if (frameRendered) {
+			addLog("info", `Real video stream active for ${serial}`);
+			return true;
+		} else {
+			// No frame rendered within timeout - stop stream and fall back to screenshots
+			addLog("warn", `Video stream did not render frames within timeout, falling back to screenshots`);
+			videoStream.stop();
+			videoStream = null;
+			return false;
+		}
 	} catch (error) {
 		addLog("warn", `Video stream unavailable, using screenshots: ${error}`);
 		if (videoStream) {
