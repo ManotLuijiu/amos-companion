@@ -368,12 +368,22 @@ body {
 	text-align: center;
 }
 
-.device-online .device-icon {
-	color: var(--accent-green);
+/* CSS-based online/offline indicators using ::before */
+.device-icon::before {
+	content: "";
+	display: block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin: 0 auto;
 }
 
-.device-offline .device-icon {
-	color: var(--text-muted);
+.device-online .device-icon::before {
+	background-color: var(--accent-green, #22c55e);
+}
+
+.device-offline .device-icon::before {
+	background-color: var(--text-muted, #6b7280);
 }
 
 .device-info {
@@ -842,6 +852,44 @@ body {
 	color: var(--text-primary);
 }
 
+/* Device name edit */
+.mirror-edit-name {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px;
+	border-radius: var(--radius-sm);
+	font-size: 12px;
+	opacity: 0;
+	transition: opacity 0.2s;
+}
+
+.mirror-header:hover .mirror-edit-name {
+	opacity: 1;
+}
+
+.mirror-edit-name:hover {
+	background: var(--bg-hover);
+	color: var(--accent-blue);
+}
+
+.device-name-input {
+	background: var(--bg-tertiary);
+	border: 1px solid var(--accent-blue);
+	border-radius: var(--radius-sm);
+	padding: 2px 6px;
+	color: var(--text-primary);
+	font-size: inherit;
+	font-family: inherit;
+	max-width: 150px;
+}
+
+.device-name-input:focus {
+	outline: none;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
 .mirror-screen-container {
 	flex: 1;
 	position: relative;
@@ -931,6 +979,28 @@ body {
 	border-top-color: var(--accent-blue);
 	border-radius: 50%;
 	animation: spin 1s linear infinite;
+}
+
+/* Secure-screen notice overlay */
+.mirror-secure-notice {
+	position: absolute;
+	bottom: 60px;
+	left: 50%;
+	transform: translateX(-50%);
+	background: rgba(0, 0, 0, 0.85);
+	border: 1px solid var(--accent-blue);
+	border-radius: 8px;
+	padding: 10px 16px;
+	font-size: 12px;
+	color: var(--text-secondary);
+	text-align: center;
+	max-width: 280px;
+	z-index: 10;
+	pointer-events: none;
+}
+
+.mirror-secure-notice::before {
+	content: "🔒 ";
 }
 
 @keyframes spin {

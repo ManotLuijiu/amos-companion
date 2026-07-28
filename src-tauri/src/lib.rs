@@ -584,14 +584,26 @@ async fn is_scrcpy_available_cmd() -> Result<bool, String> {
 async fn start_scrcpy(
     serial: String,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<scrcpy::ScrcpyLaunchResult, String> {
     let mut manager = state.scrcpy_manager.lock().await;
-    
+
+    // Stop any existing scrcpy process before replacing the manager
+    // to avoid orphaning std::process::Child handles.
+    if manager.is_active() {
+        info!("Stopping existing scrcpy before starting new one");
+        manager.stop();
+    }
+
     // Update the serial if different
     let new_stream = scrcpy::ScrcpyStream::new(serial.clone());
     *manager = new_stream;
-    
-    manager.start()
+
+    let result = manager.start().await;
+    if result.success {
+        Ok(result)
+    } else {
+        Err(result.message)
+    }
 }
 
 #[tauri::command]

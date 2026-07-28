@@ -32,6 +32,19 @@ interface DeviceList {
 	devices: DeviceInfo[];
 }
 
+/**
+ * Result returned from backend `start_scrcpy` Tauri command.
+ * Mirrors the Rust struct `ScrcpyLaunchResult`.
+ */
+interface ScrcpyLaunchResult {
+	success: boolean;
+	pid: number | null;
+	window_title: string;
+	message: string;
+	focus_attempted: boolean;
+	focus_succeeded: boolean | null;
+}
+
 type StatusDisplay = "loading" | "setup" | "stopped" | "running" | "error";
 
 interface LogEntry {
@@ -64,6 +77,79 @@ let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
 const maxLogs = 500;
+
+// ─── Device Friendly Names ───────────────────────────────────────────────────
+
+const DEVICE_NAMES_KEY = "amos-device-names";
+
+function getDeviceFriendlyName(serial: string): string | null {
+	try {
+		const names = JSON.parse(localStorage.getItem(DEVICE_NAMES_KEY) || "{}");
+		return names[serial] || null;
+	} catch {
+		return null;
+	}
+}
+
+function setDeviceFriendlyName(serial: string, name: string): void {
+	try {
+		const names = JSON.parse(localStorage.getItem(DEVICE_NAMES_KEY) || "{}");
+		names[serial] = name.trim() || "";
+		localStorage.setItem(DEVICE_NAMES_KEY, JSON.stringify(names));
+	} catch {
+		// Ignore storage errors
+	}
+}
+
+function getDeviceDisplayName(device: DeviceInfo): string {
+	return getDeviceFriendlyName(device.serial) || device.model || device.serial;
+}
+
+/**
+ * Start inline editing of device friendly name
+ */
+function startDeviceNameEdit(): void {
+	if (!currentMirroringDevice) return;
+
+	const deviceNameSpan = document.getElementById("mirror-device-name");
+	if (!deviceNameSpan || deviceNameSpan.querySelector("input")) return; // Already editing
+
+	const currentName =
+		getDeviceFriendlyName(currentMirroringDevice) || currentMirroringDevice;
+
+	const input = document.createElement("input");
+	input.type = "text";
+	input.className = "device-name-input";
+	input.value = currentName;
+	input.maxLength = 30;
+
+	// Replace span content with input
+	deviceNameSpan.textContent = "";
+	deviceNameSpan.appendChild(input);
+	input.focus();
+	input.select();
+
+	const finishEdit = () => {
+		const newName = input.value.trim();
+		if (newName && newName !== currentName) {
+			setDeviceFriendlyName(currentMirroringDevice!, newName);
+			addLog("debug", `Device renamed to: ${newName}`);
+		}
+		// Restore display - use friendly name or serial
+		deviceNameSpan.textContent =
+			getDeviceFriendlyName(currentMirroringDevice!) || currentMirroringDevice!;
+	};
+
+	input.addEventListener("blur", finishEdit);
+	input.addEventListener("keydown", (e) => {
+		if (e.key === "Enter") {
+			input.blur();
+		} else if (e.key === "Escape") {
+			input.value = currentName; // Cancel
+			input.blur();
+		}
+	});
+}
 
 function getCompanionVersionLabel(): string {
 	const version =
@@ -637,6 +723,7 @@ function createMirrorCard(): HTMLElement {
 		<div class="mirror-title">
 			<span>📺</span>
 			<span class="device-name" id="mirror-device-name">Screen Mirror</span>
+			<button class="mirror-edit-name" id="btn-edit-device-name" title="Edit name">✎</button>
 		</div>
 		<button class="mirror-close" id="btn-close-mirror" title="Close mirror">✕</button>
 	`;
@@ -655,6 +742,9 @@ function createMirrorCard(): HTMLElement {
 			<span>Connecting to device...</span>
 		</div>
 		<img class="mirror-screen" id="mirror-screen" style="display: none;" alt="Device Screen" />
+		<div class="mirror-secure-notice" id="mirror-secure-notice" style="display: none;">
+			This secure screen may appear blank. Enter PIN directly on device.
+		</div>
 	`;
 	card.appendChild(screenContainer);
 
@@ -818,11 +908,10 @@ async function handleDeviceClick(device: DeviceInfo): Promise<void> {
 	// If scrcpy is enabled, start scrcpy for this device
 	if (scrcpyEnabled) {
 		try {
-			await invoke("start_scrcpy", { serial: device.serial });
-			addLog(
-				"info",
-				`scrcpy launched for ${device.model} - scrcpy window should appear (check Dock on macOS)`,
-			);
+			const result = await invoke<ScrcpyLaunchResult>("start_scrcpy", {
+				serial: device.serial,
+			});
+			logScrcpyResult(result);
 		} catch (err) {
 			addLog("error", `Failed to start scrcpy: ${err}`);
 		}
@@ -845,6 +934,7 @@ function closeDevicePanel(): void {
 
 let deviceErrorCount = 0;
 let mirrorErrorCount = 0;
+let refreshFrameCount = 0; // Counter for black screen detection
 const MAX_SCREENSHOT_ERRORS = 3;
 
 async function refreshScreenshot(): Promise<void> {
@@ -1079,6 +1169,42 @@ async function handleControlEnter(): Promise<void> {
 	}
 }
 
+/**
+ * Log scrcpy launch result truthfully based on backend result.
+ * Distinguishes:
+ * - Success + focus succeeded
+ * - Success + focus failed
+ * - Launch failed
+ */
+function logScrcpyResult(result: ScrcpyLaunchResult): void {
+	if (!result.success) {
+		addLog("error", `scrcpy failed: ${result.message}`);
+		return;
+	}
+
+	// Success
+	const pidStr = result.pid ? ` (PID: ${result.pid})` : "";
+	addLog("info", `scrcpy launched${pidStr} - window: "${result.window_title}"`);
+
+	if (result.focus_attempted && result.focus_succeeded === true) {
+		addLog("info", `scrcpy window focused to front`);
+	} else if (result.focus_attempted && result.focus_succeeded === false) {
+		addLog(
+			"warn",
+			`scrcpy window NOT auto-focused. Look in Dock, Mission Control, or other Spaces.`,
+		);
+		addLog(
+			"info",
+			`To enable focus on macOS: System Settings → Privacy & Security → Accessibility → enable AMOS Companion`,
+		);
+	} else {
+		addLog(
+			"info",
+			`If you can't see the window, check Dock or Mission Control.`,
+		);
+	}
+}
+
 async function handleScrcpyToggle(): Promise<void> {
 	const toggle = document.getElementById("toggle-scrcpy") as HTMLInputElement;
 	if (!toggle || !selectedDevice) return;
@@ -1090,12 +1216,11 @@ async function handleScrcpyToggle(): Promise<void> {
 			return;
 		}
 		try {
-			await invoke("start_scrcpy", { serial: selectedDevice.serial });
+			const result = await invoke<ScrcpyLaunchResult>("start_scrcpy", {
+				serial: selectedDevice.serial,
+			});
 			scrcpyEnabled = true;
-			addLog(
-				"info",
-				`scrcpy launched - scrcpy window should appear (check Dock on macOS)`,
-			);
+			logScrcpyResult(result);
 		} catch (err) {
 			addLog("error", `Failed to start scrcpy: ${err}`);
 			toggle.checked = false;
@@ -1299,10 +1424,13 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 
 		filteredDevices.forEach((device) => {
 			const li = document.createElement("li");
-			li.className = `device-item ${device.status === "connected" ? "device-online" : "device-offline"}`;
+			// ADB reports connected devices as status "device" (not "connected")
+			const isOnline =
+				device.status === "device" || device.status === "connected";
+			li.className = `device-item ${isOnline ? "device-online" : "device-offline"}`;
 			const isMirroring = currentMirroringDevice === device.serial;
 			li.innerHTML = `
-				<span class="device-icon">${device.status === "connected" ? "●" : "○"}</span>
+				<span class="device-icon ${isOnline ? "online" : "offline"}"></span>
 				<div class="device-info">
 					<span class="device-name">${device.model || "Unknown Device"}</span>
 					<span class="device-serial">${device.serial}</span>
@@ -1570,7 +1698,7 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorScreen) mirrorScreen.style.display = "none";
 	if (mirrorControls) mirrorControls.style.display = "flex";
 	if (mirrorDeviceName)
-		mirrorDeviceName.textContent = device.model || device.serial;
+		mirrorDeviceName.textContent = getDeviceDisplayName(device);
 
 	// Set the device AFTER clearing old session
 	currentMirroringDevice = device.serial;
@@ -1599,15 +1727,30 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
 	) as HTMLImageElement;
+	const secureNotice = document.getElementById("mirror-secure-notice");
 	if (!mirrorScreen || !currentMirroringDevice) return;
 
 	try {
 		const base64 = await invoke<string>("capture_screenshot", { serial });
 		if (base64) {
+			// Check if screenshot is likely a secure/black screen
+			// Screenshot polling: check every 3rd frame to avoid performance impact
+			const shouldCheckSecure = refreshFrameCount % 3 === 0;
+			if (shouldCheckSecure) {
+				const isBlack = await checkIfBlackScreen(base64);
+				if (isBlack && secureNotice) {
+					addLog("debug", "Screenshot appears black - secure screen");
+					secureNotice.style.display = "block";
+				} else if (secureNotice) {
+					secureNotice.style.display = "none";
+				}
+			}
 			mirrorScreen.src = `data:image/png;base64,${base64}`;
 			mirrorErrorCount = 0; // Reset error count on success
 		} else {
-			addLog("warn", "Screenshot returned empty data");
+			// Screenshot returned empty - likely a secure screen (PIN/pattern)
+			addLog("debug", "Screenshot returned empty - secure screen");
+			if (secureNotice) secureNotice.style.display = "block";
 		}
 	} catch (error) {
 		addLog("warn", `Screenshot failed: ${error}`);
@@ -1620,6 +1763,68 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 			stopMirror();
 		}
 	}
+	refreshFrameCount++;
+}
+
+/**
+ * Check if a base64 screenshot appears to be a black/blank screen
+ * Used to detect secure screens that return valid but black images
+ */
+async function checkIfBlackScreen(base64: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const img = new Image();
+		img.onload = () => {
+			const canvas = document.createElement("canvas");
+			canvas.width = img.width;
+			canvas.height = img.height;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) {
+				resolve(false);
+				return;
+			}
+			ctx.drawImage(img, 0, 0);
+			const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			const data = imageData.data;
+
+			// Sample pixels: check corners and center regions
+			const samplePoints = [
+				// Corners
+				0,
+				0,
+				canvas.width - 1,
+				0,
+				0,
+				canvas.height - 1,
+				canvas.width - 1,
+				canvas.height - 1,
+				// Center
+				Math.floor(canvas.width / 2),
+				Math.floor(canvas.height / 2),
+			];
+
+			let totalBrightness = 0;
+			let sampleCount = 0;
+
+			for (let i = 0; i < samplePoints.length; i += 2) {
+				const x = samplePoints[i];
+				const y = samplePoints[i + 1];
+				const idx = (y * canvas.width + x) * 4;
+				const r = data[idx];
+				const g = data[idx + 1];
+				const b = data[idx + 2];
+				// Calculate perceived brightness
+				const brightness = r * 0.299 + g * 0.587 + b * 0.114;
+				totalBrightness += brightness;
+				sampleCount++;
+			}
+
+			const avgBrightness = totalBrightness / sampleCount;
+			// If average brightness is very low (< 5), likely a black/secure screen
+			resolve(avgBrightness < 5);
+		};
+		img.onerror = () => resolve(false);
+		img.src = `data:image/png;base64,${base64}`;
+	});
 }
 
 /**
@@ -1658,6 +1863,10 @@ async function stopMirrorInternal(): Promise<void> {
 	if (mirrorPlaceholder) mirrorPlaceholder.style.display = "flex";
 	if (mirrorLoading) mirrorLoading.style.display = "none";
 	if (mirrorControls) mirrorControls.style.display = "none";
+
+	// Hide secure notice when stopping mirror
+	const secureNotice = document.getElementById("mirror-secure-notice");
+	if (secureNotice) secureNotice.style.display = "none";
 
 	currentMirroringDevice = null;
 }
@@ -1775,6 +1984,16 @@ function setupEventListeners(): void {
 	const btnCloseMirror = document.getElementById("btn-close-mirror");
 	btnCloseMirror?.addEventListener("click", () => {
 		stopMirror();
+	});
+
+	// Device name edit
+	const btnEditName = document.getElementById("btn-edit-device-name");
+	const deviceNameSpan = document.getElementById("mirror-device-name");
+	btnEditName?.addEventListener("click", () => {
+		startDeviceNameEdit();
+	});
+	deviceNameSpan?.addEventListener("click", () => {
+		startDeviceNameEdit();
 	});
 
 	const btnMirrorBack = document.getElementById("btn-mirror-back");

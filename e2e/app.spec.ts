@@ -12,6 +12,51 @@ const { version: packageVersion } = JSON.parse(
  * Note: Full app tests (device control, mirroring) require Tauri app running.
  */
 
+/**
+ * Tests for editable device friendly name feature
+ */
+test.describe("Device Friendly Name Editing", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.goto("/");
+	});
+
+	test("should have edit button in mirror header", async ({ page }) => {
+		const editBtn = page.locator("#btn-edit-device-name");
+		await expect(editBtn).toBeAttached();
+	});
+
+	test("should have device name span in mirror header", async ({ page }) => {
+		const deviceName = page.locator("#mirror-device-name");
+		await expect(deviceName).toBeAttached();
+		await expect(deviceName).toContainText("Screen Mirror");
+	});
+
+	test("edit button should be hidden initially", async ({ page }) => {
+		const editBtn = page.locator("#btn-edit-device-name");
+		await expect(editBtn).toHaveCSS("opacity", "0");
+	});
+
+	test("edit button should be visible on header hover", async ({ page }) => {
+		const editBtn = page.locator("#btn-edit-device-name");
+		const header = page.locator(".mirror-header");
+		await header.hover();
+		await expect(editBtn).toHaveCSS("opacity", "1");
+	});
+
+	test("should have CSS class for device name input styling", async ({
+		page,
+	}) => {
+		// Verify the CSS class exists in stylesheet
+		const hasInputStyle = await page.evaluate(() => {
+			return Array.from(document.styleSheets)
+				.filter((s) => s.cssRules.length > 0)
+				.flatMap((s) => Array.from(s.cssRules))
+				.some((r) => r.cssText.includes("device-name-input"));
+		});
+		expect(hasInputStyle).toBeTruthy();
+	});
+});
+
 test.describe("AMOS Companion UI", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto("/");
@@ -100,3 +145,6 @@ test.describe("AMOS Companion UI", () => {
 
 // Note: Agent control tests (start/stop button, device list) require login
 // These can be tested when we implement auth mocking in E2E tests
+
+// Note: Secure-screen notice and device online indicator are UI-only features
+// that require actual device mirroring to test fully in E2E environment
