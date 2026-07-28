@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.9](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.8...companion/v1.2.9) (2026-07-28)
+
+
+### Features
+
+* enable real video streaming with screenshot fallback ([297ad28](https://github.com/ManotLuijiu/amos-companion/commit/297ad280a9a3361c788ebc04cabebaf1eb4c42f7))
+
+
+### Bug Fixes
+
+* sync version files to 1.2.8 + add release script ([4617e18](https://github.com/ManotLuijiu/amos-companion/commit/4617e18a6f8e02b4b223a34ca918e0fcfbe03ba4))
+
 ### [1.2.4](https://github.com/ManotLuijiu/auto-affiliate-agents/compare/v1.0.0...v1.2.4) (2026-07-27)
 
 
