@@ -36,6 +36,7 @@ use tracing::{error, info, warn};
 use crate::adb::{find_adb, run_adb};
 
 /// Default scrcpy server settings
+const SCRCPY_SERVER_VERSION: &str = "4.1"; // Must match the scrcpy-server.jar version
 const DEFAULT_BITRATE: i32 = 8000000; // 8 Mbps
 const DEFAULT_MAX_FPS: i32 = 60;
 const DEFAULT_MAX_WIDTH: i32 = 1920;
@@ -296,13 +297,17 @@ impl ScrcpyServer {
         }
 
         // Step 6: Start scrcpy-server on device
+        // Correct scrcpy-server command format for v2.x+:
+        // CLASSPATH=/path/to/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server <version> <options>
         info!("Starting scrcpy-server on device");
 
+        // Use key=value format for scrcpy v2.x+
         let start_cmd = format!(
-            "CLASSPATH={} app_process / {} --bit-rate={} --max-fps={} --max-size={}",
-            device_server_path, port, DEFAULT_BITRATE, DEFAULT_MAX_FPS, DEFAULT_MAX_WIDTH
+            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} bitrate={} maxFps={} maxSize={} tunnel=true",
+            device_server_path, SCRCPY_SERVER_VERSION, DEFAULT_BITRATE, DEFAULT_MAX_FPS, DEFAULT_MAX_WIDTH
         );
         info!("scrcpy-server command: {}", start_cmd);
+        self.debug_info += &format!("\nscrcpy-server command: {}", start_cmd);
 
         let child = Command::new(&adb_path)
             .args(["-s", &self.serial, "shell", "nohup", &start_cmd])
@@ -455,6 +460,27 @@ impl ScrcpyServer {
                 "scrcpy-debug",
                 &format!("Starting frame read loop... port={}", port),
             );
+
+            // Try to peek if there's any data available first
+            let mut peek_buf = [0u8; 1];
+            match stream.peek(&mut peek_buf) {
+                Ok(0) => {
+                    info!("scrcpy: no data available yet (peek returned 0)");
+                    let _ = app_clone.emit("scrcpy-debug", "scrcpy: no data available on peek");
+                }
+                Ok(n) => {
+                    info!("scrcpy: data available (peek returned {} bytes)", n);
+                    let _ = app_clone.emit(
+                        "scrcpy-debug",
+                        &format!("scrcpy: data available on peek ({} bytes)", n),
+                    );
+                }
+                Err(e) => {
+                    info!("scrcpy: peek error: {}", e);
+                    let _ = app_clone.emit("scrcpy-debug", &format!("scrcpy: peek error: {}", e));
+                }
+            }
+
             let mut frame_count = 0u64;
             let mut consecutive_timeouts = 0u32;
             loop {
@@ -463,9 +489,48 @@ impl ScrcpyServer {
                     break;
                 }
 
+                // Try peek first to see if data is available
+                let mut peek_buf = [0u8; 1];
+                match stream.peek(&mut peek_buf) {
+                    Ok(0) => {
+                        // No data available, wait a bit
+                        thread::sleep(Duration::from_millis(100));
+                        consecutive_timeouts += 1;
+                        if consecutive_timeouts.is_multiple_of(10) {
+                            info!("scrcpy: still waiting... ({})", consecutive_timeouts);
+                            let _ = app_clone.emit(
+                                "scrcpy-debug",
+                                &format!("scrcpy: still waiting... ({})", consecutive_timeouts),
+                            );
+                        }
+                        if consecutive_timeouts > 100 {
+                            warn!("scrcpy: no frames after 100 checks, stopping");
+                            let _ = app_clone.emit(
+                                "scrcpy-debug",
+                                "scrcpy: no frames after 100 checks, stopping",
+                            );
+                            break;
+                        }
+                        continue;
+                    }
+                    Ok(_) => {
+                        // Data available, try to read
+                        consecutive_timeouts = 0;
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // WouldBlock on peek too, just continue
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("scrcpy peek error: {}", e);
+                        let _ =
+                            app_clone.emit("scrcpy-debug", &format!("scrcpy peek error: {}", e));
+                        break;
+                    }
+                }
+
                 match read_packet(&mut stream) {
                     Ok(packet) => {
-                        consecutive_timeouts = 0;
                         frame_count += 1;
                         // Emit frame data via Tauri event
                         if let Err(e) = app_clone.emit(ScrcpyServer::SCRCPY_FRAME_EVENT, &packet) {
@@ -480,15 +545,19 @@ impl ScrcpyServer {
                                 frame_count,
                                 packet.len()
                             );
+                            let _ = app_clone.emit(
+                                "scrcpy-debug",
+                                &format!(
+                                    "scrcpy frame {} emitted ({} bytes)",
+                                    frame_count,
+                                    packet.len()
+                                ),
+                            );
                         }
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Timeout, continue checking running flag
+                        // Timeout, continue checking
                         consecutive_timeouts += 1;
-                        if consecutive_timeouts == 1 {
-                            info!("scrcpy: waiting for frames...");
-                            let _ = app_clone.emit("scrcpy-debug", "Waiting for frames...");
-                        }
                         if consecutive_timeouts > 100 {
                             warn!(
                                 "scrcpy: no frames received for {} timeouts, stopping",
@@ -507,6 +576,8 @@ impl ScrcpyServer {
                     }
                     Err(e) => {
                         error!("scrcpy read error after {} frames: {}", frame_count, e);
+                        let _ =
+                            app_clone.emit("scrcpy-debug", &format!("scrcpy read error: {}", e));
                         break;
                     }
                 }

@@ -1564,6 +1564,10 @@ class VideoStream {
 	async start(): Promise<boolean> {
 		// Start backend stream via Tauri command
 		try {
+			// CRITICAL: Subscribe to frames BEFORE calling backend
+			// to avoid missing initial SPS/PPS/IDR config packets
+			await this.subscribeToFrames();
+
 			const info = await invoke<{
 				width: number;
 				height: number;
@@ -1585,7 +1589,6 @@ class VideoStream {
 			this.ctx = this.canvas.getContext("2d");
 
 			this.running = true;
-			this.subscribeToFrames();
 			addLog(
 				"info",
 				`Video stream started (${this.width}x${this.height}) via Tauri events`,
@@ -1812,6 +1815,10 @@ class ScrcpyVideoStream {
 				`[SCRCPY] Starting scrcpy-server mirror for ${this.serial}...`,
 			);
 
+			// CRITICAL: Subscribe to events BEFORE calling backend
+			// to avoid missing initial packets/frames
+			await this.subscribeToEvents();
+
 			const info = await invoke<{
 				width: number;
 				height: number;
@@ -1833,7 +1840,6 @@ class ScrcpyVideoStream {
 			this.ctx = this.canvas.getContext("2d");
 
 			this.running = true;
-			this.subscribeToEvents();
 
 			addLog(
 				"info",
