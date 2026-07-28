@@ -128,7 +128,6 @@ impl ScrcpyStream {
             "--turn-screen-off",
             "--show-touches",
             "--prefer-text",
-            "--quiet",
         ]);
 
         // Capture stderr so we can detect failures

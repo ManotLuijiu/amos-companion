@@ -1,11 +1,13 @@
-//! Video streaming via Tauri events using screenrecord
+//! ADB Video Streaming via screenrecord (BUILT-IN MIRROR)
 //!
-//! Implements low-latency screen streaming using:
-//! 1. adb shell screenrecord for h264 capture
-//! 2. Tauri events for backend→frontend IPC (no WebSocket needed)
+//! ✅ STATUS: WORKING (but limited performance due to ADB overhead)
+//! This is the built-in mirror mode that streams video via:
+//! 1. `adb shell screenrecord` for H.264 capture
+//! 2. Tauri events for backend→frontend IPC
 //! 3. WebCodecs API for browser-side decoding
 //!
-//! This avoids the macOS sandbox issue with TCP sockets.
+//! PERFORMANCE NOTE: ADB adds significant latency (~100-300ms per frame).
+//! For better performance, use scrcpy mode (scrcpy_server.rs) instead.
 //!
 //! H.264 NAL Unit Handling:
 //! The raw H.264 stream from screenrecord must be parsed at NAL unit boundaries.
@@ -51,7 +53,8 @@ fn find_nal_units(data: &[u8]) -> Vec<(usize, usize)> {
     while i < data.len() {
         // Look for start code: 0x00 0x00 [0x00] 0x01
         if i + 3 < data.len() && data[i] == 0x00 && data[i + 1] == 0x00 {
-            let start_code_len = if i + 4 < data.len() && data[i + 2] == 0x00 && data[i + 3] == 0x01 {
+            let start_code_len = if i + 4 < data.len() && data[i + 2] == 0x00 && data[i + 3] == 0x01
+            {
                 // 4-byte start code: 0x00 0x00 0x00 0x01
                 4
             } else if data[i + 2] == 0x01 {
@@ -252,7 +255,9 @@ impl VideoStream {
                                     let nal_type = nal_data.first().map(|b| b & 0x1F).unwrap_or(0);
                                     info!(
                                         "NAL unit {} emitted (type={}, {} bytes)",
-                                        nal_units_emitted, nal_type, nal_data.len()
+                                        nal_units_emitted,
+                                        nal_type,
+                                        nal_data.len()
                                     );
                                     last_log_time = std::time::Instant::now();
                                 }
@@ -269,7 +274,10 @@ impl VideoStream {
                         }
                     }
                     Err(e) => {
-                        error!("Stream read error after {} NAL units: {}", nal_units_emitted, e);
+                        error!(
+                            "Stream read error after {} NAL units: {}",
+                            nal_units_emitted, e
+                        );
                         break;
                     }
                 }

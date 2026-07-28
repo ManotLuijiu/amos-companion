@@ -1477,11 +1477,18 @@ let screenshotPollingInterval: ReturnType<typeof setInterval> | null = null;
 const MIRROR_REFRESH_MS = 200; // 5 FPS fallback
 
 // WebCodecs-based video player using Tauri events (no WebSocket needed).
-// This bypasses the macOS sandbox issue that blocked WebSocket connections.
-// Key improvements over raw chunk approach:
+// ADB Video Streaming (Built-in Mirror Mode)
+//
+// ✅ STATUS: WORKING
+// This is the built-in mirror mode using adb screenrecord + WebCodecs.
+//
+// PERFORMANCE: Limited due to ADB overhead (~100-300ms latency per frame).
+// For better performance, use scrcpy mode instead (scrcpy_server.rs).
+//
+// Features:
 // 1. Waits for actual first frame to render before declaring success
-// 2. Provides automatic fallback to screenshots if video doesn't render
-// 3. Tracks decode success to distinguish stream-start from frame-rendered
+// 2. Automatic fallback to screenshot polling if video doesn't render
+// 3. 5-second timeout prevents false success states
 class VideoStream {
 	private unlistenFrame: (() => void) | null = null;
 	private decoder: globalThis.VideoDecoder | null = null;
@@ -1811,7 +1818,10 @@ async function tryStartVideoStream(serial: string): Promise<boolean> {
 			return true;
 		} else {
 			// No frame rendered within timeout - stop stream and fall back to screenshots
-			addLog("warn", `Video stream did not render frames within timeout, falling back to screenshots`);
+			addLog(
+				"warn",
+				`Video stream did not render frames within timeout, falling back to screenshots`,
+			);
 			videoStream.stop();
 			videoStream = null;
 			return false;
