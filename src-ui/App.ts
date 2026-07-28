@@ -1783,7 +1783,10 @@ class ScrcpyVideoStream {
 	 */
 	async start(): Promise<boolean> {
 		try {
-			addLog("info", `[SCRCPY] Starting scrcpy-server mirror for ${this.serial}...`);
+			addLog(
+				"info",
+				`[SCRCPY] Starting scrcpy-server mirror for ${this.serial}...`,
+			);
 
 			const info = await invoke<{
 				width: number;
@@ -1833,10 +1836,7 @@ class ScrcpyVideoStream {
 			if (event.payload.width && event.payload.height) {
 				this.width = event.payload.width;
 				this.height = event.payload.height;
-				addLog(
-					"info",
-					`[SCRCPY] Device info: ${this.width}x${this.height}`,
-				);
+				addLog("info", `[SCRCPY] Device info: ${this.width}x${this.height}`);
 			}
 		});
 
@@ -1936,7 +1936,7 @@ class ScrcpyVideoStream {
 			this._firstFrameTimeout = setTimeout(() => {
 				if (!this._firstFrameRendered) {
 					addLog(
-					"warn",
+						"warn",
 						"[SCRCPY] No frame rendered within timeout, stopping...",
 					);
 					this._frameRenderResolve?.(false);

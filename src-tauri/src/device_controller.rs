@@ -88,19 +88,36 @@ pub fn capture_screenshot(serial: &str) -> Result<String, String> {
             out.stdout
         }
         Ok(out) => {
-            tracing::error!("Screenshot exec-out failed: status={}, stdout_len={}, stderr={}",
-                out.status, out.stdout.len(), String::from_utf8_lossy(&out.stderr));
+            tracing::error!(
+                "Screenshot exec-out failed: status={}, stdout_len={}, stderr={}",
+                out.status,
+                out.stdout.len(),
+                String::from_utf8_lossy(&out.stderr)
+            );
             // Fallback: use temp file method
             let _ = std::fs::remove_file(&temp_path);
 
             let capture_result = Command::new(&adb_path)
-                .args(["-s", serial, "shell", "screencap", "-p", "/sdcard/amos_screen.png"])
+                .args([
+                    "-s",
+                    serial,
+                    "shell",
+                    "screencap",
+                    "-p",
+                    "/sdcard/amos_screen.png",
+                ])
                 .output();
 
             match capture_result {
                 Ok(cr) if cr.status.success() => {
                     let pull_result = Command::new(&adb_path)
-                        .args(["-s", serial, "pull", "/sdcard/amos_screen.png", temp_path.to_str().unwrap_or("/tmp/amos_screen.png")])
+                        .args([
+                            "-s",
+                            serial,
+                            "pull",
+                            "/sdcard/amos_screen.png",
+                            temp_path.to_str().unwrap_or("/tmp/amos_screen.png"),
+                        ])
                         .output();
 
                     match pull_result {
@@ -110,7 +127,7 @@ pub fn capture_screenshot(serial: &str) -> Result<String, String> {
                                 .args(["-s", serial, "shell", "rm", "/sdcard/amos_screen.png"])
                                 .output();
                             let _ = std::fs::remove_file(&temp_path);
-                            
+
                             if data.is_empty() {
                                 return Err("Screenshot data is empty".to_string());
                             }
@@ -118,7 +135,10 @@ pub fn capture_screenshot(serial: &str) -> Result<String, String> {
                             data
                         }
                         Ok(pr) => {
-                            return Err(format!("Failed to pull screenshot: {}", String::from_utf8_lossy(&pr.stderr)));
+                            return Err(format!(
+                                "Failed to pull screenshot: {}",
+                                String::from_utf8_lossy(&pr.stderr)
+                            ));
                         }
                         Err(e) => {
                             return Err(format!("Failed to pull screenshot: {}", e));
@@ -126,7 +146,10 @@ pub fn capture_screenshot(serial: &str) -> Result<String, String> {
                     }
                 }
                 Ok(cr) => {
-                    return Err(format!("Failed to capture screenshot: {}", String::from_utf8_lossy(&cr.stderr)));
+                    return Err(format!(
+                        "Failed to capture screenshot: {}",
+                        String::from_utf8_lossy(&cr.stderr)
+                    ));
                 }
                 Err(e) => {
                     return Err(format!("Failed to capture screenshot: {}", e));

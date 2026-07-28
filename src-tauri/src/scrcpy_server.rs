@@ -28,9 +28,9 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::thread;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::time::Duration;
-use tauri::{AppHandle, Emitter};
 use tracing::{error, info};
 
 use crate::adb::{find_adb, run_adb};
@@ -58,8 +58,16 @@ fn parse_device_meta(meta: &[u8]) -> (u32, u32) {
     if let Ok(json_str) = std::str::from_utf8(meta) {
         // Try to parse JSON to get dimensions
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
-            let w = json.get("width").or(json.get("screenWidth")).and_then(|v| v.as_u64()).unwrap_or(1920) as u32;
-            let h = json.get("height").or(json.get("screenHeight")).and_then(|v| v.as_u64()).unwrap_or(1080) as u32;
+            let w = json
+                .get("width")
+                .or(json.get("screenWidth"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1920) as u32;
+            let h = json
+                .get("height")
+                .or(json.get("screenHeight"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1080) as u32;
             return (w, h);
         }
     }
@@ -310,10 +318,13 @@ impl ScrcpyServer {
         let app_clone = app.clone();
 
         // Emit that stream started
-        let _ = app.emit("scrcpy-stream-started", serde_json::json!({
-            "serial": serial,
-            "port": port,
-        }));
+        let _ = app.emit(
+            "scrcpy-stream-started",
+            serde_json::json!({
+                "serial": serial,
+                "port": port,
+            }),
+        );
 
         // Spawn thread to read frames from TCP and emit via Tauri events
         thread::spawn(move || {
@@ -348,12 +359,15 @@ impl ScrcpyServer {
             info!("scrcpy device screen: {}x{}", width, height);
 
             // Emit dimensions
-            let _ = app_clone.emit("scrcpy-stream-started", serde_json::json!({
-                "serial": serial,
-                "port": port,
-                "width": width,
-                "height": height,
-            }));
+            let _ = app_clone.emit(
+                "scrcpy-stream-started",
+                serde_json::json!({
+                    "serial": serial,
+                    "port": port,
+                    "width": width,
+                    "height": height,
+                }),
+            );
 
             // Read frames
             let mut frame_count = 0u64;
