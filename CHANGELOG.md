@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.12](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.11...companion/v1.2.12) (2026-07-28)
+
+
+### Bug Fixes
+
+* **scrcpy:** remove unsupported --quiet option for older scrcpy versions ([2cd58a1](https://github.com/ManotLuijiu/amos-companion/commit/2cd58a14dcb501742cc9f3ab676c2d1a306147dc))
+
 ### [1.2.11](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.10...companion/v1.2.11) (2026-07-28)
 
 
