@@ -144,6 +144,7 @@ pub struct ScrcpyServer {
     serial: String,
     local_port: u16,
     process: Option<std::process::Child>,
+    debug_info: String,
 }
 
 /// Scrcpy control message types
@@ -181,6 +182,7 @@ impl ScrcpyServer {
             serial,
             local_port: 8888,
             process: None,
+            debug_info: String::new(),
         }
     }
 
@@ -268,17 +270,20 @@ impl ScrcpyServer {
         if let Ok(out) = forward_result {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
-            info!(
-                "Port forward stdout: {}, stderr: {}",
+            // Store for later emission
+            self.debug_info = format!(
+                "Port forward result: stdout='{}', stderr='{}'",
                 stdout.trim(),
                 stderr.trim()
             );
+            info!("Port forward stdout: {}, stderr: {}", stdout.trim(), stderr.trim());
             if !out.status.success() {
                 return Err(format!("Failed to forward port: {}", stderr));
             }
             info!("Port forwarding: tcp:{} -> localabstract:scrcpy", port);
         } else {
             error!("Port forward command failed to execute");
+            self.debug_info = "Port forward command failed to execute".to_string();
         }
 
         // Step 6: Start scrcpy-server on device
@@ -311,11 +316,13 @@ impl ScrcpyServer {
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout.contains("scrcpy") {
                 info!("scrcpy-server process found on device");
+                self.debug_info += "\nscrcpy-server process found on device";
             } else {
                 warn!(
                     "scrcpy-server process NOT found on device! stdout: {}",
                     stdout
                 );
+                self.debug_info += "\nscrcpy-server process NOT found on device!";
             }
         }
 
@@ -350,6 +357,11 @@ impl ScrcpyServer {
     pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32), String> {
         // Start scrcpy-server (uses existing start() logic)
         self.start()?;
+
+        // Emit debug info from start()
+        if !self.debug_info.is_empty() {
+            let _ = app.emit("scrcpy-debug", &self.debug_info);
+        }
 
         let port = self.local_port;
         let serial = self.serial.clone();
