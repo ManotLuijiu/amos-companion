@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.24](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.23...companion/v1.2.24) (2026-07-28)
+
+
+### Bug Fixes
+
+* **scrcpy:** emit debug logs after frontend listener is set up ([7f91774](https://github.com/ManotLuijiu/amos-companion/commit/7f91774ec66f76243dd9e24f30fbf10f48ad0684))
+
 ### [1.2.23](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.22...companion/v1.2.23) (2026-07-28)
 
 ### [1.2.22](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.21...companion/v1.2.22) (2026-07-28)
