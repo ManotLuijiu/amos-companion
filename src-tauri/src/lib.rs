@@ -638,6 +638,12 @@ async fn start_scrcpy_mirror(
     // Start server with Tauri events (emits frames via scrcpy-frame event)
     let (width, height) = server.start_with_events(&app)?;
 
+    // Emit debug info AFTER start_with_events returns (frontend has set up listener by now)
+    let debug_info = server.get_debug_info();
+    if !debug_info.is_empty() {
+        let _ = app.emit("scrcpy-debug", debug_info);
+    }
+
     info!(
         "scrcpy-server mirror started for {} ({}x{})",
         serial, width, height

@@ -186,6 +186,11 @@ impl ScrcpyServer {
         }
     }
 
+    /// Get debug info from start()
+    pub fn get_debug_info(&self) -> &str {
+        &self.debug_info
+    }
+
     /// Start scrcpy-server streaming
     pub fn start(&mut self) -> Result<String, String> {
         let adb_path = find_adb();
@@ -276,7 +281,11 @@ impl ScrcpyServer {
                 stdout.trim(),
                 stderr.trim()
             );
-            info!("Port forward stdout: {}, stderr: {}", stdout.trim(), stderr.trim());
+            info!(
+                "Port forward stdout: {}, stderr: {}",
+                stdout.trim(),
+                stderr.trim()
+            );
             if !out.status.success() {
                 return Err(format!("Failed to forward port: {}", stderr));
             }
@@ -356,12 +365,8 @@ impl ScrcpyServer {
     /// Returns (width, height) on success.
     pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32), String> {
         // Start scrcpy-server (uses existing start() logic)
+        // Debug info is stored in self.debug_info and should be emitted by caller
         self.start()?;
-
-        // Emit debug info from start()
-        if !self.debug_info.is_empty() {
-            let _ = app.emit("scrcpy-debug", &self.debug_info);
-        }
 
         let port = self.local_port;
         let serial = self.serial.clone();
