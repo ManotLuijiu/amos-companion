@@ -935,6 +935,7 @@ function closeDevicePanel(): void {
 let deviceErrorCount = 0;
 let mirrorErrorCount = 0;
 let refreshFrameCount = 0; // Counter for black screen detection
+let consecutiveBlackFrames = 0; // Track sustained black to avoid false positives
 const MAX_SCREENSHOT_ERRORS = 3;
 
 async function refreshScreenshot(): Promise<void> {
@@ -1703,15 +1704,23 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	// Set the device AFTER clearing old session
 	currentMirroringDevice = device.serial;
 
-	// Start screenshot polling (WebSocket streaming disabled due to macOS sandbox issues)
-	addLog("info", `Starting screenshot mirror for ${device.serial}...`);
-	await refreshMirrorScreen(device.serial);
+	// Try real video streaming first (screenrecord + WebCodecs)
+	// Falls back to screenshot polling if video stream fails to start
+	addLog("info", `Starting mirror for ${device.serial}...`);
+	const videoStarted = await tryStartVideoStream(device.serial);
+	if (!videoStarted) {
+		addLog(
+			"info",
+			`Falling back to screenshot polling for ${device.serial}...`,
+		);
+		await refreshMirrorScreen(device.serial);
 
-	screenshotPollingInterval = setInterval(async () => {
-		if (currentMirroringDevice) {
-			await refreshMirrorScreen(currentMirroringDevice);
-		}
-	}, MIRROR_REFRESH_MS);
+		screenshotPollingInterval = setInterval(async () => {
+			if (currentMirroringDevice) {
+				await refreshMirrorScreen(currentMirroringDevice);
+			}
+		}, MIRROR_REFRESH_MS);
+	}
 
 	if (mirrorScreen) mirrorScreen.style.display = "block";
 	if (mirrorLoading) mirrorLoading.style.display = "none";
@@ -1723,6 +1732,34 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	if (mirrorWifi) mirrorWifi.textContent = "—";
 }
 
+/**
+ * Try to start real video streaming (screenrecord + WebCodecs).
+ * Returns true on success, false if video stream failed (caller should
+ * fall back to screenshot polling).
+ */
+async function tryStartVideoStream(serial: string): Promise<boolean> {
+	if (videoStream) {
+		videoStream.stop();
+		videoStream = null;
+	}
+
+	try {
+		videoStream = new VideoStream(serial);
+		await videoStream.start();
+		// VideoStream renders into the same #mirror-screen img element via
+		// canvas.toDataURL(), so we don't need to hide anything here.
+		addLog("info", `Real video stream started for ${serial}`);
+		return true;
+	} catch (error) {
+		addLog("warn", `Video stream unavailable, using screenshots: ${error}`);
+		if (videoStream) {
+			videoStream.stop();
+			videoStream = null;
+		}
+		return false;
+	}
+}
+
 async function refreshMirrorScreen(serial: string): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
@@ -1730,19 +1767,30 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	const secureNotice = document.getElementById("mirror-secure-notice");
 	if (!mirrorScreen || !currentMirroringDevice) return;
 
+	// If video stream is active, skip screenshot polling to avoid conflicting writes
+	if (videoStream) {
+		return;
+	}
+
 	try {
 		const base64 = await invoke<string>("capture_screenshot", { serial });
 		if (base64) {
 			// Check if screenshot is likely a secure/black screen
-			// Screenshot polling: check every 3rd frame to avoid performance impact
-			const shouldCheckSecure = refreshFrameCount % 3 === 0;
+			// Sample less frequently to avoid performance impact
+			const shouldCheckSecure = refreshFrameCount % 5 === 0;
 			if (shouldCheckSecure) {
 				const isBlack = await checkIfBlackScreen(base64);
-				if (isBlack && secureNotice) {
-					addLog("debug", "Screenshot appears black - secure screen");
-					secureNotice.style.display = "block";
-				} else if (secureNotice) {
-					secureNotice.style.display = "none";
+				if (isBlack) {
+					consecutiveBlackFrames++;
+					// Only show notice after 3 consecutive black checks (sustained black)
+					if (consecutiveBlackFrames >= 3 && secureNotice) {
+						addLog("debug", "Screenshot consistently black - secure screen");
+						secureNotice.style.display = "block";
+					}
+				} else {
+					// Non-black frame - reset counter and hide notice
+					consecutiveBlackFrames = 0;
+					if (secureNotice) secureNotice.style.display = "none";
 				}
 			}
 			mirrorScreen.src = `data:image/png;base64,${base64}`;
@@ -1750,6 +1798,7 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 		} else {
 			// Screenshot returned empty - likely a secure screen (PIN/pattern)
 			addLog("debug", "Screenshot returned empty - secure screen");
+			consecutiveBlackFrames = 0; // Don't count empty as black
 			if (secureNotice) secureNotice.style.display = "block";
 		}
 	} catch (error) {
@@ -1768,12 +1817,17 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 
 /**
  * Check if a base64 screenshot appears to be a black/blank screen
- * Used to detect secure screens that return valid but black images
+ * Used to detect secure screens that return valid but black images.
+ * Uses variance-based detection to avoid false positives from dark themes.
  */
 async function checkIfBlackScreen(base64: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const img = new Image();
 		img.onload = () => {
+			if (img.width === 0 || img.height === 0) {
+				resolve(false);
+				return;
+			}
 			const canvas = document.createElement("canvas");
 			canvas.width = img.width;
 			canvas.height = img.height;
@@ -1786,41 +1840,40 @@ async function checkIfBlackScreen(base64: string): Promise<boolean> {
 			const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 			const data = imageData.data;
 
-			// Sample pixels: check corners and center regions
-			const samplePoints = [
-				// Corners
-				0,
-				0,
-				canvas.width - 1,
-				0,
-				0,
-				canvas.height - 1,
-				canvas.width - 1,
-				canvas.height - 1,
-				// Center
-				Math.floor(canvas.width / 2),
-				Math.floor(canvas.height / 2),
-			];
+			// Use 5x5 grid of sample points to better detect blank screens
+			// while ignoring dark themes and status bars
+			const sampleXs = [0.1, 0.3, 0.5, 0.7, 0.9];
+			const sampleYs = [0.2, 0.4, 0.5, 0.6, 0.8];
+			const brightnesses: number[] = [];
 
-			let totalBrightness = 0;
-			let sampleCount = 0;
-
-			for (let i = 0; i < samplePoints.length; i += 2) {
-				const x = samplePoints[i];
-				const y = samplePoints[i + 1];
-				const idx = (y * canvas.width + x) * 4;
-				const r = data[idx];
-				const g = data[idx + 1];
-				const b = data[idx + 2];
-				// Calculate perceived brightness
-				const brightness = r * 0.299 + g * 0.587 + b * 0.114;
-				totalBrightness += brightness;
-				sampleCount++;
+			for (const fy of sampleYs) {
+				for (const fx of sampleXs) {
+					const x = Math.floor(fx * canvas.width);
+					const y = Math.floor(fy * canvas.height);
+					const idx = (y * canvas.width + x) * 4;
+					const r = data[idx] ?? 0;
+					const g = data[idx + 1] ?? 0;
+					const b = data[idx + 2] ?? 0;
+					// Calculate perceived brightness
+					const brightness = r * 0.299 + g * 0.587 + b * 0.114;
+					brightnesses.push(brightness);
+				}
 			}
 
-			const avgBrightness = totalBrightness / sampleCount;
-			// If average brightness is very low (< 5), likely a black/secure screen
-			resolve(avgBrightness < 5);
+			if (brightnesses.length === 0) {
+				resolve(false);
+				return;
+			}
+
+			const avgBrightness =
+				brightnesses.reduce((a, b) => a + b, 0) / brightnesses.length;
+			const maxBrightness = Math.max(...brightnesses);
+
+			// True blank/black screen: ALL sample points are nearly black AND no variation
+			// Dark themes: avg > 20 OR max > 30 (some bright pixels in icons/text)
+			const isBlankScreen = avgBrightness < 3 && maxBrightness < 8;
+
+			resolve(isBlankScreen);
 		};
 		img.onerror = () => resolve(false);
 		img.src = `data:image/png;base64,${base64}`;
