@@ -1,6 +1,6 @@
 [package]
 name = "amos-companion"
-version = "1.2.17"  # Synced from package.json
+version = "1.2.18"  # Synced from package.json
 description = "AMOS Companion — connect Android devices to AMOS with one click"
 authors = ["AMOS"]
 edition = "2021"

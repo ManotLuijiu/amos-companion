@@ -408,7 +408,11 @@ impl ScrcpyServer {
             );
 
             // Read frames
-            info!("Starting frame read loop..."); let _ = app_clone.emit("scrcpy-debug", &format!("Starting frame read loop... port={}", port));
+            info!("Starting frame read loop...");
+            let _ = app_clone.emit(
+                "scrcpy-debug",
+                &format!("Starting frame read loop... port={}", port),
+            );
             let mut frame_count = 0u64;
             let mut consecutive_timeouts = 0u32;
             loop {
@@ -448,7 +452,13 @@ impl ScrcpyServer {
                                 "scrcpy: no frames received for {} timeouts, stopping",
                                 consecutive_timeouts
                             );
-                            let _ = app_clone.emit("scrcpy-debug", &format!("No frames for {} timeouts, stopping", consecutive_timeouts));
+                            let _ = app_clone.emit(
+                                "scrcpy-debug",
+                                &format!(
+                                    "No frames for {} timeouts, stopping",
+                                    consecutive_timeouts
+                                ),
+                            );
                             break;
                         }
                         continue;
