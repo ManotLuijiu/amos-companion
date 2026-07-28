@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.10](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.9...companion/v1.2.10) (2026-07-28)
+
+
+### Bug Fixes
+
+* replace WebSocket with Tauri events for video streaming ([3f32c8c](https://github.com/ManotLuijiu/amos-companion/commit/3f32c8c71bac14e02a87220845107c110291193f))
+
 ### [1.2.9](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.8...companion/v1.2.9) (2026-07-28)
 
 
