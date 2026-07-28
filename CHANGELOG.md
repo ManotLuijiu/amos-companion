@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.20](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.19...companion/v1.2.20) (2026-07-28)
+
+
+### Bug Fixes
+
+* **scrcpy:** use correct port forwarding to abstract socket ([51b1b6f](https://github.com/ManotLuijiu/amos-companion/commit/51b1b6f05433188588f6178243eb63d6bfa04d66))
+
 ### [1.2.19](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.18...companion/v1.2.19) (2026-07-28)
 
 ### [1.2.18](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.17...companion/v1.2.18) (2026-07-28)
