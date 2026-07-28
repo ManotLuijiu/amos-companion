@@ -1230,31 +1230,37 @@ function logScrcpyResult(result: ScrcpyLaunchResult): void {
 
 async function handleScrcpyToggle(): Promise<void> {
 	const toggle = document.getElementById("toggle-scrcpy") as HTMLInputElement;
-	if (!toggle || !selectedDevice) return;
+	if (!toggle) return;
 
 	if (toggle.checked) {
 		if (!scrcpyAvailable) {
-			addLog("warn", "scrcpy not found. Install with: brew install scrcpy");
+			addLog("warn", "scrcpy-server not found. Install scrcpy-server.jar to enable high-performance mirroring.");
 			toggle.checked = false;
+			scrcpyEnabled = false;
 			return;
 		}
-		try {
-			const result = await invoke<ScrcpyLaunchResult>("start_scrcpy", {
-				serial: selectedDevice.serial,
-			});
-			scrcpyEnabled = true;
-			logScrcpyResult(result);
-		} catch (err) {
-			addLog("error", `Failed to start scrcpy: ${err}`);
-			toggle.checked = false;
+		// Enable scrcpy-server mode for mirror
+		scrcpyEnabled = true;
+		addLog("info", "[SCRCPY] scrcpy-server mode enabled - will use for mirror");
+
+		// If mirror is currently running, restart it with scrcpy-server
+		if (currentMirroringDevice) {
+			addLog("info", `[MIRROR] Restarting mirror with scrcpy-server mode...`);
+			const device: DeviceInfo = selectedDevice || { serial: currentMirroringDevice, model: "", status: "device", resolution: null, battery: null };
+			await stopMirrorInternal();
+			await startMirror(device);
 		}
 	} else {
-		try {
-			await invoke("stop_scrcpy");
-			scrcpyEnabled = false;
-			addLog("info", "scrcpy stopped");
-		} catch (err) {
-			addLog("error", `Failed to stop scrcpy: ${err}`);
+		// Disable scrcpy-server mode
+		scrcpyEnabled = false;
+		addLog("info", "[SCRCPY] scrcpy-server mode disabled - using ADB screenrecord");
+
+		// If mirror is currently running with scrcpy-server, restart with ADB
+		if (currentMirroringDevice && scrcpyServerStream) {
+			addLog("info", `[MIRROR] Restarting mirror with ADB mode...`);
+			const device: DeviceInfo = selectedDevice || { serial: currentMirroringDevice, model: "", status: "device", resolution: null, battery: null };
+			await stopMirrorInternal();
+			await startMirror(device);
 		}
 	}
 }
