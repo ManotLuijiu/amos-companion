@@ -366,14 +366,21 @@ impl ScrcpyServer {
             let meta = match read_packet(&mut stream) {
                 Ok(data) => data,
                 Err(e) => {
-                    warn!("Failed to read scrcpy device meta: {} - may be sending raw H264", e);
+                    warn!(
+                        "Failed to read scrcpy device meta: {} - may be sending raw H264",
+                        e
+                    );
                     // Try to continue anyway - might get H264 directly
                     vec![]
                 }
             };
 
             if !meta.is_empty() {
-                info!("scrcpy device meta received ({} bytes): {:?}", meta.len(), String::from_utf8_lossy(&meta[..meta.len().min(200)]));
+                info!(
+                    "scrcpy device meta received ({} bytes): {:?}",
+                    meta.len(),
+                    String::from_utf8_lossy(&meta[..meta.len().min(200)])
+                );
             } else {
                 info!("No device meta received, assuming raw H264 stream");
             }

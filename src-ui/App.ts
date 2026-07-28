@@ -1882,10 +1882,14 @@ class ScrcpyVideoStream {
 
 	private decodeWithWebCodecs(data: ArrayBuffer): void {
 		if (!this.decoder) {
+			addLog("info", `[SCRCPY] Initializing decoder...`);
 			this.initDecoder();
 		}
 
-		if (!this.decoder || !this.canvas || !this.ctx) return;
+		if (!this.decoder || !this.canvas || !this.ctx) {
+			addLog("warn", `[SCRCPY] Decoder not ready, dropping frame`);
+			return;
+		}
 
 		try {
 			const chunk = new EncodedVideoChunk({
@@ -1895,6 +1899,7 @@ class ScrcpyVideoStream {
 			});
 
 			this.decoder.decode(chunk);
+			addLog("debug", `[SCRCPY] Frame submitted for decode (${data.byteLength} bytes)`);
 		} catch (error) {
 			addLog("warn", `[SCRCPY] Decode error: ${error}`);
 		}
