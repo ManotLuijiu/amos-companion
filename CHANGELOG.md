@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.25](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.24...companion/v1.2.25) (2026-07-28)
+
+
+### Bug Fixes
+
+* **mirror:** fix two critical root causes of live mirror timeout ([455eada](https://github.com/ManotLuijiu/amos-companion/commit/455eadac00d76cc900350aace01949a95c295f3b))
+
 ### [1.2.24](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.23...companion/v1.2.24) (2026-07-28)
 
 
