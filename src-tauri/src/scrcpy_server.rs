@@ -2,33 +2,36 @@
 //!
 //! Implements Android screen mirroring using scrcpy-server with ADB forwarding.
 //!
-//! STATUS: Code exists but NOT wired up to UI yet.
+//! STATUS: IN PROGRESS - Adding frame streaming via Tauri events.
 //!
-//! How it should work:
+//! Architecture:
 //! 1. Push scrcpy-server to device via ADB
 //! 2. Start scrcpy-server on device (listens on device port)
 //! 3. ADB forward local port → device port
-//! 4. scrcpy-server streams H.264 video over TCP
-//! 5. Frontend receives via WebSocket (ws://127.0.0.1:<port>)
-//! 6. Render frames in #mirror-screen div (same as adb mode)
+//! 4. Backend connects to local TCP (forwarded to device)
+//! 5. Backend reads H.264 frames from scrcpy protocol
+//! 6. Backend emits frames via Tauri events (same as video_stream.rs)
+//! 7. Frontend receives via Tauri events, decodes with WebCodecs
+//! 8. Frames render in #mirror-screen div (same as adb mode)
 //!
-//! TODO to make it work:
-//! - Wire up start_mirror/stop_mirror commands in lib.rs
-//! - Add WebSocket client in frontend App.ts
-//! - Route scrcpy-server stream to frontend instead of external window
+//! scrcpy Protocol:
+//! - First packet: Device meta (JSON with screen size)
+//! - Subsequent packets: H.264 frames with 4-byte length prefix
+//! - Frame format: [4 bytes: size][N bytes: H.264 NAL units]
 //!
 //! Related: scrcpy.rs (native binary mode - separate window)
-//! Related: video_stream.rs (ADB screenrecord mode - works but slow)
-//!
-//! Implements Android screen mirroring using scrcpy-server with ADB forwarding.
+//! Related: video_stream.rs (ADB screenrecord - works but slow)
 
+use std::io::Read;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::thread;
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use tokio::time::Duration;
-use tracing::info;
+use tauri::{AppHandle, Emitter};
+use tracing::{error, info};
 
 use crate::adb::{find_adb, run_adb};
 
@@ -36,6 +39,33 @@ use crate::adb::{find_adb, run_adb};
 const DEFAULT_BITRATE: i32 = 8000000; // 8 Mbps
 const DEFAULT_MAX_FPS: i32 = 60;
 const DEFAULT_MAX_WIDTH: i32 = 1920;
+
+/// Read a packet from scrcpy-server.
+/// scrcpy protocol: [4 bytes: big-endian size][N bytes: data]
+fn read_packet(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+    let mut size_buf = [0u8; 4];
+    stream.read_exact(&mut size_buf)?;
+    let size = u32::from_be_bytes(size_buf) as usize;
+
+    let mut data = vec![0u8; size];
+    stream.read_exact(&mut data)?;
+    Ok(data)
+}
+
+/// Parse device meta from scrcpy-server.
+/// Returns (width, height).
+fn parse_device_meta(meta: &[u8]) -> (u32, u32) {
+    if let Ok(json_str) = std::str::from_utf8(meta) {
+        // Try to parse JSON to get dimensions
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+            let w = json.get("width").or(json.get("screenWidth")).and_then(|v| v.as_u64()).unwrap_or(1920) as u32;
+            let h = json.get("height").or(json.get("screenHeight")).and_then(|v| v.as_u64()).unwrap_or(1080) as u32;
+            return (w, h);
+        }
+    }
+    // Default dimensions
+    (DEFAULT_MAX_WIDTH as u32, 1080)
+}
 
 /// Path to scrcpy-server JAR
 fn get_scrcpy_server_path() -> PathBuf {
@@ -260,6 +290,116 @@ impl ScrcpyServer {
         std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
     }
 
+    /// Event name for scrcpy video frames
+    pub const SCRCPY_FRAME_EVENT: &str = "scrcpy-frame";
+
+    /// Start scrcpy-server and emit frames via Tauri events.
+    /// This allows the frontend to render frames in the #mirror-screen div.
+    ///
+    /// Returns (width, height) on success.
+    pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32), String> {
+        // Start scrcpy-server (uses existing start() logic)
+        self.start()?;
+
+        let port = self.local_port;
+        let serial = self.serial.clone();
+        let running = Arc::new(std::sync::Mutex::new(true));
+        let running_clone = running.clone();
+
+        // Clone app handle for the thread
+        let app_clone = app.clone();
+
+        // Emit that stream started
+        let _ = app.emit("scrcpy-stream-started", serde_json::json!({
+            "serial": serial,
+            "port": port,
+        }));
+
+        // Spawn thread to read frames from TCP and emit via Tauri events
+        thread::spawn(move || {
+            info!("Starting scrcpy frame reader thread for port {}", port);
+
+            // Connect to local port (forwarded to device scrcpy-server)
+            let addr = format!("127.0.0.1:{}", port);
+            let mut stream = match TcpStream::connect(&addr) {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to connect to scrcpy-server at {}: {}", addr, e);
+                    return;
+                }
+            };
+
+            // Set read timeout to allow checking running flag
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(100)));
+
+            // Read device meta (first packet)
+            let meta = match read_packet(&mut stream) {
+                Ok(data) => data,
+                Err(e) => {
+                    error!("Failed to read scrcpy device meta: {}", e);
+                    return;
+                }
+            };
+
+            info!("scrcpy device meta received ({} bytes)", meta.len());
+
+            // Parse meta to get dimensions
+            let (width, height) = parse_device_meta(&meta);
+            info!("scrcpy device screen: {}x{}", width, height);
+
+            // Emit dimensions
+            let _ = app_clone.emit("scrcpy-stream-started", serde_json::json!({
+                "serial": serial,
+                "port": port,
+                "width": width,
+                "height": height,
+            }));
+
+            // Read frames
+            let mut frame_count = 0u64;
+            loop {
+                if !*running_clone.lock().unwrap() {
+                    info!("scrcpy frame reader stopped");
+                    break;
+                }
+
+                match read_packet(&mut stream) {
+                    Ok(packet) => {
+                        frame_count += 1;
+                        // Emit frame data via Tauri event
+                        if let Err(e) = app_clone.emit(ScrcpyServer::SCRCPY_FRAME_EVENT, &packet) {
+                            error!("Failed to emit scrcpy frame: {}", e);
+                            break;
+                        }
+
+                        if frame_count <= 3 || frame_count.is_multiple_of(100) {
+                            info!("scrcpy frame {} ({} bytes)", frame_count, packet.len());
+                        }
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // Timeout, continue checking running flag
+                        continue;
+                    }
+                    Err(e) => {
+                        error!("scrcpy read error after {} frames: {}", frame_count, e);
+                        break;
+                    }
+                }
+            }
+
+            let _ = app_clone.emit("scrcpy-stream-ended", ());
+            info!("scrcpy frame reader ended: {} frames", frame_count);
+        });
+
+        // Return dimensions (will be updated by frame reader thread)
+        Ok((DEFAULT_MAX_WIDTH as u32, 0)) // Will be updated when meta is received
+    }
+
+    /// Stop the frame reader thread
+    pub fn stop_frame_reader(&self) {
+        // This is called when stopping - the frame reader checks this flag
+    }
+
     /// Stop scrcpy-server
     pub fn stop(&mut self) {
         info!("Stopping scrcpy-server");
@@ -393,10 +533,10 @@ impl Drop for ScrcpyServer {
 }
 
 /// Shared scrcpy server manager with async support
-pub type ScrcpyServerManager = Arc<Mutex<ScrcpyServer>>;
+pub type ScrcpyServerManager = Arc<TokioMutex<ScrcpyServer>>;
 
 pub fn create_scrcpy_server(serial: String) -> ScrcpyServerManager {
-    Arc::new(Mutex::new(ScrcpyServer::new(serial)))
+    Arc::new(TokioMutex::new(ScrcpyServer::new(serial)))
 }
 
 /// Start mirror and return WebSocket URL

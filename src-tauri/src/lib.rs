@@ -615,6 +615,51 @@ async fn stop_scrcpy(state: tauri::State<'_, AppState>) -> Result<(), String> {
 
 // ─── Scrcpy-Server WebSocket Commands ─────────────────────────────────────────
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScrcpyStreamInfo {
+    pub width: u32,
+    pub height: u32,
+    pub running: bool,
+    pub event_name: String,
+}
+
+#[tauri::command]
+async fn start_scrcpy_mirror(
+    serial: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<ScrcpyStreamInfo, String> {
+    info!("Starting scrcpy-server mirror for device: {}", serial);
+    let mut server = state.scrcpy_server.lock().await;
+
+    // Update serial
+    *server = scrcpy_server::ScrcpyServer::new(serial.clone());
+
+    // Start server with Tauri events (emits frames via scrcpy-frame event)
+    let (width, height) = server.start_with_events(&app)?;
+
+    info!(
+        "scrcpy-server mirror started for {} ({}x{})",
+        serial, width, height
+    );
+
+    Ok(ScrcpyStreamInfo {
+        width,
+        height,
+        running: true,
+        event_name: scrcpy_server::ScrcpyServer::SCRCPY_FRAME_EVENT.to_string(),
+    })
+}
+
+#[tauri::command]
+async fn stop_scrcpy_mirror(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    info!("Stopping scrcpy-server mirror");
+    let mut server = state.scrcpy_server.lock().await;
+    server.stop();
+    Ok(())
+}
+
+// Legacy commands (kept for backward compatibility)
 #[tauri::command]
 async fn start_mirror(
     serial: String,
@@ -622,11 +667,11 @@ async fn start_mirror(
 ) -> Result<String, String> {
     info!("Starting mirror for device: {}", serial);
     let mut server = state.scrcpy_server.lock().await;
-    
+
     // Update serial
     *server = scrcpy_server::ScrcpyServer::new(serial);
-    
-    // Start server
+
+    // Start server (legacy - returns WebSocket URL)
     server.start()
 }
 
@@ -645,7 +690,7 @@ async fn mirror_control(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let server = state.scrcpy_server.lock().await;
-    
+
     match action.as_str() {
         "back" => server.back(),
         "home" => server.home(),
@@ -829,7 +874,10 @@ pub fn run() {
             device_back,
             device_home,
             device_enter,
-            // New scrcpy-server commands
+            // scrcpy-server Tauri events mode (for #mirror-screen div)
+            start_scrcpy_mirror,
+            stop_scrcpy_mirror,
+            // Legacy scrcpy-server commands
             start_mirror,
             stop_mirror,
             mirror_control,

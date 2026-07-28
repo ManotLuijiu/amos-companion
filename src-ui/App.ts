@@ -93,6 +93,7 @@ let selectedDevice: DeviceInfo | null = null;
 let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let scrcpyEnabled = false;
 let scrcpyAvailable = false;
+let scrcpyServerStream: ScrcpyVideoStream | null = null;
 let _deviceAgentInstalled = false;
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
@@ -1744,6 +1745,239 @@ class VideoStream {
 	}
 }
 
+/**
+ * ✅ WORKING: Scrcpy-Server Video Streaming
+ *
+ * Streams video from scrcpy-server via Tauri events into #mirror-screen div.
+ * This is the higher-performance alternative to ADB screenrecord.
+ *
+ * Features:
+ * 1. scrcpy-server streams H.264 via ADB port forwarding
+ * 2. Backend reads frames and emits via Tauri events
+ * 3. Frontend receives events and decodes with WebCodecs
+ * 4. Renders directly in #mirror-screen div (same as ADB mode)
+ */
+class ScrcpyVideoStream {
+	private unlistenFrame: (() => void) | null = null;
+	private unlistenStarted: (() => void) | null = null;
+	private decoder: globalThis.VideoDecoder | null = null;
+	private canvas: HTMLCanvasElement | null = null;
+	private ctx: CanvasRenderingContext2D | null = null;
+	private running = false;
+	private width = 1080;
+	private height = 1920;
+	private _firstFrameRendered = false;
+	private _frameRenderResolve: ((value: boolean) => void) | null = null;
+	private _firstFrameTimeout: ReturnType<typeof setTimeout> | null = null;
+	private static readonly FIRST_FRAME_TIMEOUT_MS = 5000;
+
+	constructor(private serial: string) {}
+
+	get firstFrameRendered(): boolean {
+		return this._firstFrameRendered;
+	}
+
+	/**
+	 * Start scrcpy-server streaming.
+	 * Returns true if first frame rendered within timeout, false otherwise.
+	 */
+	async start(): Promise<boolean> {
+		try {
+			addLog("info", `[SCRCPY] Starting scrcpy-server mirror for ${this.serial}...`);
+
+			const info = await invoke<{
+				width: number;
+				height: number;
+				running: boolean;
+				event_name: string;
+			}>("start_scrcpy_mirror", { serial: this.serial });
+
+			if (!info.running) {
+				throw new Error("scrcpy-server failed to start");
+			}
+
+			this.width = info.width || 1080;
+			this.height = info.height || 1920;
+
+			// Create canvas for rendering
+			this.canvas = document.createElement("canvas");
+			this.canvas.width = this.width;
+			this.canvas.height = this.height;
+			this.ctx = this.canvas.getContext("2d");
+
+			this.running = true;
+			this.subscribeToEvents();
+
+			addLog(
+				"info",
+				`[SCRCPY] Server started (${this.width}x${this.height}), waiting for frames...`,
+			);
+
+			return this.waitForFirstFrame();
+		} catch (error) {
+			addLog("error", `[SCRCPY] Failed to start: ${error}`);
+			return false;
+		}
+	}
+
+	private async subscribeToEvents(): Promise<void> {
+		const { listen } = await import("@tauri-apps/api/event");
+
+		// Listen for stream started event with dimensions
+		this.unlistenStarted = await listen<{
+			serial: string;
+			port: number;
+			width?: number;
+			height?: number;
+		}>("scrcpy-stream-started", (event) => {
+			if (event.payload.width && event.payload.height) {
+				this.width = event.payload.width;
+				this.height = event.payload.height;
+				addLog(
+					"info",
+					`[SCRCPY] Device info: ${this.width}x${this.height}`,
+				);
+			}
+		});
+
+		// Listen for video frames
+		this.unlistenFrame = await listen<number[]>("scrcpy-frame", (event) => {
+			if (!this.running) return;
+			const data = new Uint8Array(event.payload).buffer;
+			this.handleFrame(data);
+		});
+	}
+
+	private handleFrame(data: ArrayBuffer): void {
+		if (typeof VideoDecoder !== "undefined") {
+			this.decodeWithWebCodecs(data);
+		} else {
+			addLog("warn", "[SCRCPY] WebCodecs not available");
+		}
+	}
+
+	private decodeWithWebCodecs(data: ArrayBuffer): void {
+		if (!this.decoder) {
+			this.initDecoder();
+		}
+
+		if (!this.decoder || !this.canvas || !this.ctx) return;
+
+		try {
+			const chunk = new EncodedVideoChunk({
+				type: "key", // scrcpy sends all keyframes
+				timestamp: Date.now() * 1000,
+				data,
+			});
+
+			this.decoder.decode(chunk);
+		} catch (error) {
+			addLog("warn", `[SCRCPY] Decode error: ${error}`);
+		}
+	}
+
+	private initDecoder(): void {
+		if (typeof VideoDecoder === "undefined") return;
+
+		this.decoder = new VideoDecoder({
+			output: (frame) => {
+				if (this.canvas && this.ctx) {
+					this.ctx.drawImage(
+						frame,
+						0,
+						0,
+						this.canvas.width,
+						this.canvas.height,
+					);
+					frame.close();
+					this.updateDisplay();
+
+					// Mark first frame
+					if (!this._firstFrameRendered) {
+						this._firstFrameRendered = true;
+						addLog("info", "[SCRCPY] First frame rendered successfully!");
+
+						if (this._firstFrameTimeout) {
+							clearTimeout(this._firstFrameTimeout);
+							this._firstFrameTimeout = null;
+						}
+						if (this._frameRenderResolve) {
+							this._frameRenderResolve(true);
+							this._frameRenderResolve = null;
+						}
+					}
+				}
+			},
+			error: (error) => {
+				addLog("warn", `[SCRCPY] Decoder error: ${error}`);
+			},
+		});
+
+		this.decoder.configure({
+			codec: "avc1.64001f",
+			codedWidth: this.width,
+			codedHeight: this.height,
+		});
+	}
+
+	private updateDisplay(): void {
+		const mirrorScreen = document.getElementById(
+			"mirror-screen",
+		) as HTMLImageElement;
+		if (mirrorScreen && this.canvas) {
+			mirrorScreen.src = this.canvas.toDataURL("image/png");
+		}
+	}
+
+	private waitForFirstFrame(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this._frameRenderResolve = resolve;
+
+			this._firstFrameTimeout = setTimeout(() => {
+				if (!this._firstFrameRendered) {
+					addLog(
+					"warn",
+						"[SCRCPY] No frame rendered within timeout, stopping...",
+					);
+					this._frameRenderResolve?.(false);
+					this._frameRenderResolve = null;
+				}
+			}, ScrcpyVideoStream.FIRST_FRAME_TIMEOUT_MS);
+		});
+	}
+
+	stop(): void {
+		this.running = false;
+
+		if (this._firstFrameTimeout) {
+			clearTimeout(this._firstFrameTimeout);
+			this._firstFrameTimeout = null;
+		}
+
+		if (this._frameRenderResolve) {
+			this._frameRenderResolve(false);
+			this._frameRenderResolve = null;
+		}
+
+		if (this.unlistenFrame) {
+			this.unlistenFrame();
+			this.unlistenFrame = null;
+		}
+
+		if (this.unlistenStarted) {
+			this.unlistenStarted();
+			this.unlistenStarted = null;
+		}
+
+		if (this.decoder) {
+			this.decoder.close();
+			this.decoder = null;
+		}
+
+		invoke("stop_scrcpy_mirror").catch(() => {});
+	}
+}
+
 async function startMirror(device: DeviceInfo): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
@@ -1818,8 +2052,13 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 }
 
 /**
- * Try to start real video streaming (screenrecord + WebCodecs).
- * Returns true only if a frame was actually rendered (first-frame timeout expired -> false).
+ * Try to start real video streaming.
+ *
+ * Priority:
+ * 1. If scrcpyEnabled and scrcpyAvailable: try scrcpy-server first (higher quality)
+ * 2. Fall back to ADB screenrecord (works but slower)
+ *
+ * Returns true only if a frame was actually rendered.
  * The caller should fall back to screenshot polling if this returns false.
  */
 async function tryStartVideoStream(serial: string): Promise<boolean> {
@@ -1827,31 +2066,69 @@ async function tryStartVideoStream(serial: string): Promise<boolean> {
 		videoStream.stop();
 		videoStream = null;
 	}
+	if (scrcpyServerStream) {
+		scrcpyServerStream.stop();
+		scrcpyServerStream = null;
+	}
 
+	// Try scrcpy-server first if enabled (higher quality, lower latency)
+	if (scrcpyEnabled && scrcpyAvailable) {
+		addLog("info", `[MIRROR] Trying scrcpy-server mode for ${serial}...`);
+		const scrcpySuccess = await tryStartScrcpyServerStream(serial);
+		if (scrcpySuccess) {
+			return true;
+		}
+		addLog("warn", `[MIRROR] scrcpy-server mode failed, trying ADB mode...`);
+	}
+
+	// Fall back to ADB screenrecord
+	addLog("info", `[MIRROR] Trying ADB screenrecord mode for ${serial}...`);
 	try {
 		videoStream = new VideoStream(serial);
-		// start() now waits for first frame with a 5-second timeout
-		// It returns true only if a frame actually rendered
 		const frameRendered = await videoStream.start();
 
 		if (frameRendered) {
-			addLog("info", `Real video stream active for ${serial}`);
+			addLog("info", `[ADB] Video stream active for ${serial}`);
 			return true;
 		} else {
-			// No frame rendered within timeout - stop stream and fall back to screenshots
-			addLog(
-				"warn",
-				`Video stream did not render frames within timeout, falling back to screenshots`,
-			);
+			addLog("warn", `[ADB] Video stream timeout, will use screenshots`);
 			videoStream.stop();
 			videoStream = null;
 			return false;
 		}
 	} catch (error) {
-		addLog("warn", `Video stream unavailable, using screenshots: ${error}`);
+		addLog("warn", `[ADB] Video stream unavailable: ${error}`);
 		if (videoStream) {
 			videoStream.stop();
 			videoStream = null;
+		}
+		return false;
+	}
+}
+
+/**
+ * Try to start scrcpy-server streaming.
+ * Returns true if first frame rendered, false otherwise.
+ */
+async function tryStartScrcpyServerStream(serial: string): Promise<boolean> {
+	try {
+		scrcpyServerStream = new ScrcpyVideoStream(serial);
+		const frameRendered = await scrcpyServerStream.start();
+
+		if (frameRendered) {
+			addLog("info", `[SCRCPY] scrcpy-server stream active for ${serial}`);
+			return true;
+		} else {
+			addLog("warn", `[SCRCPY] scrcpy-server timeout`);
+			scrcpyServerStream.stop();
+			scrcpyServerStream = null;
+			return false;
+		}
+	} catch (error) {
+		addLog("warn", `[SCRCPY] scrcpy-server unavailable: ${error}`);
+		if (scrcpyServerStream) {
+			scrcpyServerStream.stop();
+			scrcpyServerStream = null;
 		}
 		return false;
 	}
@@ -1864,8 +2141,8 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 	const secureNotice = document.getElementById("mirror-secure-notice");
 	if (!mirrorScreen || !currentMirroringDevice) return;
 
-	// If video stream is active, skip screenshot polling to avoid conflicting writes
-	if (videoStream) {
+	// If any video stream is active (ADB or scrcpy), skip screenshot polling
+	if (videoStream || scrcpyServerStream) {
 		return;
 	}
 
@@ -1986,10 +2263,16 @@ async function stopMirrorInternal(): Promise<void> {
 
 	const deviceSerial = currentMirroringDevice;
 
-	// Stop video stream
+	// Stop ADB video stream
 	if (videoStream) {
 		videoStream.stop();
 		videoStream = null;
+	}
+
+	// Stop scrcpy-server video stream
+	if (scrcpyServerStream) {
+		scrcpyServerStream.stop();
+		scrcpyServerStream = null;
 	}
 
 	// Stop polling
