@@ -1,3 +1,13 @@
+//! ✅ WORKING: Device Agent Manager
+//!
+//! Manages the AMOS device-agent process lifecycle:
+//! - Start/stop the Python agent process
+//! - Auto-register device with backend workspace
+//! - OAuth login flow integration
+//! - Device-agent installation on first run
+//!
+//! Related: workspace_manager.rs, device_agent_installer.rs
+
 use crate::adb::find_adb;
 use crate::device_agent_installer;
 use crate::AgentStatus;

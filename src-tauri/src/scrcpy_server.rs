@@ -1,4 +1,24 @@
-//! Scrcpy-Server streaming implementation
+//! ⚠️ PARTIAL: scrcpy-server WebSocket Streaming
+//!
+//! Implements Android screen mirroring using scrcpy-server with ADB forwarding.
+//!
+//! STATUS: Code exists but NOT wired up to UI yet.
+//!
+//! How it should work:
+//! 1. Push scrcpy-server to device via ADB
+//! 2. Start scrcpy-server on device (listens on device port)
+//! 3. ADB forward local port → device port
+//! 4. scrcpy-server streams H.264 video over TCP
+//! 5. Frontend receives via WebSocket (ws://127.0.0.1:<port>)
+//! 6. Render frames in #mirror-screen div (same as adb mode)
+//!
+//! TODO to make it work:
+//! - Wire up start_mirror/stop_mirror commands in lib.rs
+//! - Add WebSocket client in frontend App.ts
+//! - Route scrcpy-server stream to frontend instead of external window
+//!
+//! Related: scrcpy.rs (native binary mode - separate window)
+//! Related: video_stream.rs (ADB screenrecord mode - works but slow)
 //!
 //! Implements Android screen mirroring using scrcpy-server with ADB forwarding.
 

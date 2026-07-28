@@ -1,3 +1,14 @@
+//! ✅ WORKING: Device Controller
+//!
+//! ADB-based device control for mirroring and interaction:
+//! - List connected devices via `adb devices`
+//! - Capture screenshots via `adb shell screencap`
+//! - Send touch events (tap/swipe) via `adb shell input`
+//! - Control buttons (back, home, enter)
+//!
+//! NOTE: This is the low-level ADB control layer.
+//! The actual mirroring uses video_stream.rs (ADB screenrecord) or scrcpy_server.rs (scrcpy-server).
+
 use crate::adb::{find_adb, run_adb};
 use base64::{engine::general_purpose, Engine};
 use serde::{Deserialize, Serialize};

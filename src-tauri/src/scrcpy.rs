@@ -1,3 +1,13 @@
+//! ❌ NEEDS FIXING: Native scrcpy Binary Mode
+//!
+//! Launches native scrcpy binary which creates a SEPARATE macOS window.
+//! - Currently working: scrcpy binary launches with PID
+//! - Issue: Displays in separate macOS window, NOT in #mirror-screen div
+//! - Issue: Window focus not working despite macOS accessibility permissions
+//!
+//! For better integration, use scrcpy_server.rs (WebSocket mode) instead.
+//! scrcpy_server.rs streams video to the app, which can render in #mirror-screen.
+
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;

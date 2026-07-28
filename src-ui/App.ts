@@ -1,3 +1,24 @@
+//! AMOS Companion - Frontend Application
+//!
+//! ✅ WORKING FEATURES:
+//! - Agent status display and control (start/stop)
+//! - Device list with search and friendly names
+//! - Built-in mirror panel (#mirror-screen div)
+//!   - ADB video stream via screenrecord + WebCodecs
+//!   - Automatic fallback to screenshot polling
+//!   - 5-second timeout prevents false success state
+//! - Tap/swipe gestures via pointer events
+//! - Device control buttons (back, home, enter, power)
+//! - OAuth and email/password login
+//! - System tray integration
+//! - Settings panel with API URL and scrcpy toggle
+//!
+//! ❌ NEEDS FIXING:
+//! - scrcpy native binary mode: displays in separate macOS window
+//! - scrcpy-server WebSocket mode: NOT wired up to UI yet
+//!
+//! For scrcpy integration into #mirror-screen, see scrcpy_server.rs
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { TrayIcon } from "@tauri-apps/api/tray";
