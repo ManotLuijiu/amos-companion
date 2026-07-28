@@ -268,12 +268,13 @@ impl ScrcpyServer {
         if let Ok(out) = forward_result {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
-            info!("Port forward stdout: {}, stderr: {}", stdout.trim(), stderr.trim());
+            info!(
+                "Port forward stdout: {}, stderr: {}",
+                stdout.trim(),
+                stderr.trim()
+            );
             if !out.status.success() {
-                return Err(format!(
-                    "Failed to forward port: {}",
-                    stderr
-                ));
+                return Err(format!("Failed to forward port: {}", stderr));
             }
             info!("Port forwarding: tcp:{} -> localabstract:scrcpy", port);
         } else {
@@ -311,7 +312,10 @@ impl ScrcpyServer {
             if stdout.contains("scrcpy") {
                 info!("scrcpy-server process found on device");
             } else {
-                warn!("scrcpy-server process NOT found on device! stdout: {}", stdout);
+                warn!(
+                    "scrcpy-server process NOT found on device! stdout: {}",
+                    stdout
+                );
             }
         }
 
