@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.13](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.12...companion/v1.2.13) (2026-07-28)
+
+
+### Features
+
+* **mirror:** add scrcpy-server streaming to #mirror-screen div ([f828603](https://github.com/ManotLuijiu/amos-companion/commit/f82860333a55525803e61e60ee692eada21b2baf))
+
+
+### Bug Fixes
+
+* update scrcpy_server and device_controller imports ([01acd9d](https://github.com/ManotLuijiu/amos-companion/commit/01acd9d8b3d4bde9f8f422f1a401144285fdcd46))
+
+
+### Maintenance
+
+* sync version files to 1.2.12 ([3817a3a](https://github.com/ManotLuijiu/amos-companion/commit/3817a3a35064904544cb8f19204720ebec2339b8))
+
+
+### Documentation
+
+* document working and non-working components ([6ff8f57](https://github.com/ManotLuijiu/amos-companion/commit/6ff8f579067dcd41b2b8620dc28db03350564d81))
+
 ### [1.2.12](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.11...companion/v1.2.12) (2026-07-28)
 
 
