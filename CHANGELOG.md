@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.14](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.13...companion/v1.2.14) (2026-07-28)
+
+
+### Bug Fixes
+
+* **mirror:** toggle scrcpy now uses scrcpy-server mode ([5fb9811](https://github.com/ManotLuijiu/amos-companion/commit/5fb9811cbe156bdc607db07be2a05dbcdd4ca3ff))
+
 ### [1.2.13](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.12...companion/v1.2.13) (2026-07-28)
 
 
