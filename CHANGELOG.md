@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.11](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.10...companion/v1.2.11) (2026-07-28)
+
+
+### Bug Fixes
+
+* **mirror:** video stream false success state - NAL parsing + first-frame timeout ([dccd3e2](https://github.com/ManotLuijiu/amos-companion/commit/dccd3e289fb712708274ea1e0de9777eeb755d13))
+
 ### [1.2.10](https://github.com/ManotLuijiu/amos-companion/compare/companion/v1.2.9...companion/v1.2.10) (2026-07-28)
 
 
