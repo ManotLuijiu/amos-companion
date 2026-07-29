@@ -36,8 +36,8 @@ use crate::adb::{find_adb, run_adb};
 
 /// Default scrcpy server settings
 const SCRCPY_SERVER_VERSION: &str = "4.1"; // Must match the scrcpy-server.jar version
-const DEFAULT_BITRATE: i32 = 8000000; // 8 Mbps
-const DEFAULT_MAX_FPS: i32 = 60;
+const DEFAULT_BITRATE: i32 = 4_000_000; // 4 Mbps - reduced for smoother rendering
+const DEFAULT_MAX_FPS: i32 = 30; // 30 fps - halves decode/render load
 const DEFAULT_MAX_WIDTH: i32 = 1920;
 
 /// Frame payload for frontend (matches frontend contract: {bytes: [...], key: true|false})

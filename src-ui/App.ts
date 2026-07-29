@@ -862,13 +862,24 @@ function createMirrorCard(): HTMLElement {
 	mirrorScreen.id = "mirror-screen";
 	mirrorScreen.style.display = "none";
 	mirrorScreen.alt = "Device Screen";
+	// Canvas for video classes (scrcpy, ADB video) - renders directly for GPU-accelerated display
+	const mirrorCanvas = document.createElement("canvas");
+	mirrorCanvas.className = "mirror-screen-canvas";
+	mirrorCanvas.id = "mirror-screen-canvas";
+	mirrorCanvas.style.display = "none";
 	const secureNotice = document.createElement("div");
 	secureNotice.className = "mirror-secure-notice";
 	secureNotice.id = "mirror-secure-notice";
 	secureNotice.style.display = "none";
 	secureNotice.textContent =
 		"This secure screen may appear blank. Enter PIN directly on device.";
-	screenContainer.append(placeholder, loading, mirrorScreen, secureNotice);
+	screenContainer.append(
+		placeholder,
+		loading,
+		mirrorScreen,
+		mirrorCanvas,
+		secureNotice,
+	);
 	card.appendChild(screenContainer);
 
 	const controls = document.createElement("div");
@@ -1745,11 +1756,20 @@ class VideoStream {
 			this.width = info.width;
 			this.height = info.height;
 
-			// Create canvas for rendering
-			this.canvas = document.createElement("canvas");
+			// Create canvas for rendering (use shared canvas for video classes)
+			const sharedCanvas = document.getElementById(
+				"mirror-screen-canvas",
+			) as HTMLCanvasElement;
+			this.canvas = sharedCanvas || document.createElement("canvas");
 			this.canvas.width = this.width;
 			this.canvas.height = this.height;
 			this.ctx = this.canvas.getContext("2d");
+			// Show canvas, hide img
+			const mirrorScreen = document.getElementById(
+				"mirror-screen",
+			) as HTMLImageElement;
+			if (mirrorScreen) mirrorScreen.style.display = "none";
+			if (this.canvas) this.canvas.style.display = "block";
 
 			this.running = true;
 			addLog(
@@ -1900,7 +1920,7 @@ class VideoStream {
 		this.decoder = new VideoDecoder({
 			output: (frame) => {
 				if (this.canvas && this.ctx) {
-					// Scale and draw frame to canvas
+					// Scale and draw frame to canvas (canvas is now visible)
 					this.ctx.drawImage(
 						frame,
 						0,
@@ -1909,9 +1929,6 @@ class VideoStream {
 						this.canvas.height,
 					);
 					frame.close();
-
-					// Update image element
-					this.updateDisplay();
 
 					// Mark first frame as rendered - this is the success signal
 					if (!this._firstFrameRendered) {
@@ -1953,22 +1970,12 @@ class VideoStream {
 			img.onload = () => {
 				if (this.canvas && this.ctx) {
 					this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
-					this.updateDisplay();
 				}
 				URL.revokeObjectURL(url);
 			};
 			img.src = url;
 		} catch {
 			// Silently ignore
-		}
-	}
-
-	private updateDisplay(): void {
-		const mirrorScreen = document.getElementById(
-			"mirror-screen",
-		) as HTMLImageElement;
-		if (mirrorScreen && this.canvas) {
-			mirrorScreen.src = this.canvas.toDataURL("image/png");
 		}
 	}
 
@@ -1980,6 +1987,13 @@ class VideoStream {
 		// Drop any queued startup frames so they don't get replayed after
 		// a future restart of the same stream instance.
 		this._earlyFrames = [];
+
+		// Hide canvas, restore img for screenshot path
+		if (this.canvas) this.canvas.style.display = "none";
+		const mirrorScreen = document.getElementById(
+			"mirror-screen",
+		) as HTMLImageElement;
+		if (mirrorScreen) mirrorScreen.style.display = "block";
 
 		// Unsubscribe from Tauri event
 		if (this.unlistenFrame) {
@@ -2068,11 +2082,20 @@ class ScrcpyVideoStream {
 			this.width = info.width || 1080;
 			this.height = info.height || 1920;
 
-			// Create canvas for rendering
-			this.canvas = document.createElement("canvas");
+			// Create canvas for rendering (use shared canvas for video classes)
+			const sharedCanvas = document.getElementById(
+				"mirror-screen-canvas",
+			) as HTMLCanvasElement;
+			this.canvas = sharedCanvas || document.createElement("canvas");
 			this.canvas.width = this.width;
 			this.canvas.height = this.height;
 			this.ctx = this.canvas.getContext("2d");
+			// Show canvas, hide img
+			const mirrorScreen = document.getElementById(
+				"mirror-screen",
+			) as HTMLImageElement;
+			if (mirrorScreen) mirrorScreen.style.display = "none";
+			if (this.canvas) this.canvas.style.display = "block";
 
 			this.running = true;
 
@@ -2154,10 +2177,6 @@ class ScrcpyVideoStream {
 			});
 
 			this.decoder.decode(chunk);
-			addLog(
-				"debug",
-				`[SCRCPY] Frame submitted for decode (${data.byteLength} bytes, key=${isKey})`,
-			);
 		} catch (error) {
 			addLog("warn", `[SCRCPY] Decode error: ${error}`);
 		}
@@ -2177,7 +2196,6 @@ class ScrcpyVideoStream {
 						this.canvas.height,
 					);
 					frame.close();
-					this.updateDisplay();
 
 					// Mark first frame
 					if (!this._firstFrameRendered) {
@@ -2205,15 +2223,6 @@ class ScrcpyVideoStream {
 			codedWidth: this.width,
 			codedHeight: this.height,
 		});
-	}
-
-	private updateDisplay(): void {
-		const mirrorScreen = document.getElementById(
-			"mirror-screen",
-		) as HTMLImageElement;
-		if (mirrorScreen && this.canvas) {
-			mirrorScreen.src = this.canvas.toDataURL("image/png");
-		}
 	}
 
 	private waitForFirstFrame(): Promise<boolean> {
@@ -2246,6 +2255,13 @@ class ScrcpyVideoStream {
 			this._frameRenderResolve(false);
 			this._frameRenderResolve = null;
 		}
+
+		// Hide canvas, restore img for screenshot path
+		if (this.canvas) this.canvas.style.display = "none";
+		const mirrorScreen = document.getElementById(
+			"mirror-screen",
+		) as HTMLImageElement;
+		if (mirrorScreen) mirrorScreen.style.display = "block";
 
 		if (this.unlistenFrame) {
 			this.unlistenFrame();

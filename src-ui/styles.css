@@ -929,6 +929,13 @@ body {
 	touch-action: none;
 }
 
+/* Canvas for video classes - same sizing as img */
+.mirror-screen-canvas {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+
 .mirror-controls {
 	display: flex;
 	gap: 8px;
