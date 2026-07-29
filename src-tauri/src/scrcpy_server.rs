@@ -380,17 +380,36 @@ impl ScrcpyServer {
 
         self.process = Some(child);
 
-        // Wait for server to start
-        thread::sleep(Duration::from_secs(2));
+        // Wait for server to start (scrcpy-server takes time to initialize)
+        thread::sleep(Duration::from_secs(3));
+
+        // Try to connect to verify server is ready
+        let addr = format!("127.0.0.1:{}", port);
+        let server_ready = std::net::TcpStream::connect_timeout(
+            &addr.parse().unwrap_or_else(|_| "127.0.0.1:8888".parse().unwrap()),
+            std::time::Duration::from_secs(2),
+        ).is_ok();
+
+        if server_ready {
+            info!("scrcpy-server TCP connection successful");
+            self.debug_info += "\nTCP connection to server successful";
+        }
 
         // Verify scrcpy-server is running on device
+        // Check for app_process (which runs scrcpy-server)
         let ps_result = Command::new(&adb_path)
             .args(["-s", &self.serial, "shell", "ps", "-A"])
             .output();
 
         let process_alive = if let Ok(out) = ps_result {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            if stdout.contains("scrcpy") {
+            // Look for app_process or scrcpy in process list
+            // The scrcpy-server runs as app_process, not as a process named "scrcpy"
+            if stdout.contains("app_process") && stdout.contains("scrcpy") {
+                info!("scrcpy-server process found on device");
+                self.debug_info += "\nscrcpy-server process found on device";
+                true
+            } else if stdout.contains("scrcpy") {
                 info!("scrcpy-server process found on device");
                 self.debug_info += "\nscrcpy-server process found on device";
                 true
