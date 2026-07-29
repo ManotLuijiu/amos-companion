@@ -9,27 +9,30 @@ pub async fn sign_in(
     password: &str,
 ) -> Result<(String, String), String> {
     info!("Signing in as {}", email);
-    
-    let url = format!("{}/api/auth/sign-in/email-password", api_url.trim_end_matches('/'));
-    
+
+    let url = format!(
+        "{}/api/auth/sign-in/email-password",
+        api_url.trim_end_matches('/')
+    );
+
     #[derive(Serialize)]
     struct SignInRequest<'a> {
         email: &'a str,
         password: &'a str,
     }
-    
+
     #[derive(Deserialize)]
     struct SessionResponse {
         user: UserResponse,
     }
-    
+
     #[derive(Deserialize)]
     struct UserResponse {
         id: String,
         email: String,
         email_verified: bool,
     }
-    
+
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
@@ -37,34 +40,37 @@ pub async fn sign_in(
         .send()
         .await
         .map_err(|e| format!("Failed to connect to AMOS API: {}", e))?;
-    
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         error!("Sign in failed: {} - {}", status, body);
         return Err(format!("Sign in failed: {} - {}", status, body));
     }
-    
+
     let session: SessionResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse sign-in response: {}", e))?;
-    
-    info!("Sign in successful: {} ({})", session.user.email, session.user.id);
+
+    info!(
+        "Sign in successful: {} ({})",
+        session.user.email, session.user.id
+    );
     Ok((session.user.id, session.user.email))
 }
 
 /// Get or create the default workspace for a user
 /// This is called during the auto-setup flow
-pub async fn ensure_workspace_exists(
-    api_url: &str,
-    user_id: &str,
-) -> Result<String, String> {
-    info!("Checking/creating default workspace at {} for user {}", api_url, user_id);
-    
+pub async fn ensure_workspace_exists(api_url: &str, user_id: &str) -> Result<String, String> {
+    info!(
+        "Checking/creating default workspace at {} for user {}",
+        api_url, user_id
+    );
+
     // Call GET /auth/workspace/default - this creates if not exists
     let url = format!("{}/auth/workspace/default", api_url.trim_end_matches('/'));
-    
+
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
@@ -72,25 +78,28 @@ pub async fn ensure_workspace_exists(
         .send()
         .await
         .map_err(|e| format!("Failed to connect to AMOS API: {}", e))?;
-    
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         error!("Failed to get/create workspace: {} - {}", status, body);
-        return Err(format!("Failed to get/create workspace: {} - {}", status, body));
+        return Err(format!(
+            "Failed to get/create workspace: {} - {}",
+            status, body
+        ));
     }
-    
+
     #[derive(Deserialize)]
     struct WorkspaceResponse {
         id: String,
         name: String,
     }
-    
+
     let workspace: WorkspaceResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse workspace response: {}", e))?;
-    
+
     info!("Workspace ready: {} ({})", workspace.name, workspace.id);
     Ok(workspace.id)
 }
@@ -103,23 +112,29 @@ pub async fn register_device_agent(
     user_id: &str,
     label: &str,
 ) -> Result<(String, String, String), String> {
-    info!("Registering device-agent: {} for workspace {} (user: {})", label, workspace_id, user_id);
-    
-    let url = format!("{}/auth/device-agent/register", api_url.trim_end_matches('/'));
-    
+    info!(
+        "Registering device-agent: {} for workspace {} (user: {})",
+        label, workspace_id, user_id
+    );
+
+    let url = format!(
+        "{}/auth/device-agent/register",
+        api_url.trim_end_matches('/')
+    );
+
     #[derive(Serialize)]
     struct RegisterRequest<'a> {
         label: &'a str,
         workspace_id: &'a str,
     }
-    
+
     #[derive(Deserialize)]
     struct RegisterResponse {
         api_key: String,
         api_secret: String,
         agent_id: String,
     }
-    
+
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
@@ -131,19 +146,22 @@ pub async fn register_device_agent(
         .send()
         .await
         .map_err(|e| format!("Failed to register device-agent: {}", e))?;
-    
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         error!("Failed to register device-agent: {} - {}", status, body);
-        return Err(format!("Failed to register device-agent: {} - {}", status, body));
+        return Err(format!(
+            "Failed to register device-agent: {} - {}",
+            status, body
+        ));
     }
-    
+
     let result: RegisterResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse register response: {}", e))?;
-    
+
     info!("Device-agent registered: agent_id={}", result.agent_id);
     Ok((result.api_key, result.api_secret, result.agent_id))
 }
@@ -155,21 +173,21 @@ pub async fn get_device_token(
     api_secret: &str,
 ) -> Result<(String, i64), String> {
     info!("Getting device token from {}", api_url);
-    
+
     let url = format!("{}/auth/device-token", api_url.trim_end_matches('/'));
-    
+
     #[derive(Serialize)]
     struct TokenRequest<'a> {
         api_key: &'a str,
         api_secret: &'a str,
     }
-    
+
     #[derive(Deserialize)]
     struct TokenResponse {
         token: String,
         expires_in: i64,
     }
-    
+
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
@@ -180,19 +198,19 @@ pub async fn get_device_token(
         .send()
         .await
         .map_err(|e| format!("Failed to get device token: {}", e))?;
-    
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         warn!("Failed to get device token: {} - {}", status, body);
         return Err(format!("Failed to get device token: {} - {}", status, body));
     }
-    
+
     let result: TokenResponse = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse token response: {}", e))?;
-    
+
     info!("Token received, expires in {} seconds", result.expires_in);
     Ok((result.token, result.expires_in))
 }

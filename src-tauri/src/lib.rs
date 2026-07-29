@@ -14,13 +14,13 @@ use device_agent_installer as installer;
 use device_controller::{DeviceInfo, DeviceList};
 use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
 use scrcpy_server::{create_scrcpy_server, ScrcpyServerManager};
-use video_stream::VideoStream;
-use workspace_manager as wm;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tracing::{error, info};
+use video_stream::VideoStream;
+use workspace_manager as wm;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,7 +98,9 @@ async fn install_device_agent() -> Result<String, String> {
 async fn get_device_agent_status() -> Result<DeviceAgentStatus, String> {
     Ok(DeviceAgentStatus {
         installed: installer::is_installed(),
-        path: installer::get_device_agent_dir().to_string_lossy().to_string(),
+        path: installer::get_device_agent_dir()
+            .to_string_lossy()
+            .to_string(),
         os: installer::get_os_info(),
     })
 }
@@ -111,27 +113,31 @@ async fn sign_in(
     password: String,
 ) -> Result<(), String> {
     info!("Signing in as {}", email);
-    
+
     // Sign in via better-auth API
     let (user_id, user_email) = wm::sign_in(&api_url, &email, &password).await?;
-    
+
     // Save to config
     let mut config = state.config_store.lock().await;
     config.set_api_url(api_url.clone());
     config.set_user_id(Some(user_id.clone()));
     config.set_user_email(Some(user_email.clone()));
-    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-    
+    config
+        .save()
+        .map_err(|e| format!("Failed to save config: {}", e))?;
+
     info!("Sign in successful: {} ({})", user_email, user_id);
     Ok(())
 }
 
 #[tauri::command]
-async fn get_user_info(state: tauri::State<'_, AppState>) -> Result<Option<(String, String)>, String> {
+async fn get_user_info(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<(String, String)>, String> {
     let config = state.config_store.lock().await;
     let user_id = config.get_user_id();
     let user_email = config.get_user_email();
-    
+
     match (user_id, user_email) {
         (Some(id), Some(email)) => Ok(Some((id, email))),
         _ => Ok(None),
@@ -145,14 +151,16 @@ async fn sign_in_manual(
     user_id: String,
 ) -> Result<(), String> {
     info!("Manual sign-in for user {}", user_id);
-    
+
     // Save to config without email verification
     let mut config = state.config_store.lock().await;
     config.set_api_url(api_url);
     config.set_user_id(Some(user_id));
     config.set_user_email(Some("OAuth User".to_string()));
-    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-    
+    config
+        .save()
+        .map_err(|e| format!("Failed to save config: {}", e))?;
+
     info!("Manual sign-in successful");
     Ok(())
 }
@@ -165,19 +173,19 @@ async fn open_url(url: String) -> Result<(), String> {
         .arg(&url)
         .spawn()
         .map_err(|e| format!("Failed to open URL: {}", e))?;
-    
+
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open")
         .arg(&url)
         .spawn()
         .map_err(|e| format!("Failed to open URL: {}", e))?;
-    
+
     #[cfg(target_os = "windows")]
     std::process::Command::new("cmd")
         .args(["/C", "start", "", &url])
         .spawn()
         .map_err(|e| format!("Failed to open URL: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -190,69 +198,88 @@ async fn sign_in_oauth(
     use std::net::TcpListener;
     use std::thread;
     use std::time::Duration;
-    
-    
+
     info!("Starting OAuth flow for user login...");
-    
+
     // Bind to port 0 to get an available port
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("Failed to bind to localhost: {}", e))?;
-    
-    let addr = listener.local_addr().map_err(|e| format!("Failed to get local address: {}", e))?;
+
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get local address: {}", e))?;
     let port = addr.port();
     info!("OAuth callback server listening on port {}", port);
-    
+
     // Create a channel to receive the auth result
     let (tx, rx) = std::sync::mpsc::channel::<Result<(String, String), String>>();
-    
+
     // Start a local HTTP server to receive the OAuth callback
     let server_tx = tx.clone();
     let _server = thread::spawn(move || {
         // Set a timeout so we don't hang forever
         listener.set_nonblocking(true).ok();
-        
+
         // Accept connection with timeout
         let mut attempts = 0;
-        while attempts < 200 { // 20 seconds timeout
+        while attempts < 200 {
+            // 20 seconds timeout
             thread::sleep(Duration::from_millis(100));
             attempts += 1;
-            
+
             if let Ok((mut stream, _)) = listener.accept() {
                 use std::io::{Read, Write};
                 let mut buffer = [0u8; 2048];
                 if stream.read(&mut buffer).is_ok() {
                     let request = String::from_utf8_lossy(&buffer);
-                    info!("Received callback request: {}", &request[..request.len().min(200)]);
-                    
+                    info!(
+                        "Received callback request: {}",
+                        &request[..request.len().min(200)]
+                    );
+
                     // Parse the callback URL from the request
                     // Format: GET /callback?user_id=xxx&email=xxx HTTP/1.1
                     if let Some(query_start) = request.find("/callback?") {
                         let query = &request[query_start + 10..];
                         let params: Vec<&str> = query.split('&').collect();
-                        
+
                         let mut user_id = String::new();
                         let mut email = String::new();
-                        
+
                         for param in params {
                             if param.starts_with("user_id=") {
-                                user_id = param[8..].split_whitespace().next().unwrap_or("").to_string();
-                                user_id = percent_encoding::percent_decode_str(&user_id).decode_utf8_lossy().to_string();
+                                user_id = param[8..]
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or("")
+                                    .to_string();
+                                user_id = percent_encoding::percent_decode_str(&user_id)
+                                    .decode_utf8_lossy()
+                                    .to_string();
                             } else if param.starts_with("email=") {
-                                email = param[6..].split_whitespace().next().unwrap_or("").to_string();
-                                email = percent_encoding::percent_decode_str(&email).decode_utf8_lossy().to_string();
+                                email = param[6..]
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or("")
+                                    .to_string();
+                                email = percent_encoding::percent_decode_str(&email)
+                                    .decode_utf8_lossy()
+                                    .to_string();
                             }
                         }
-                        
+
                         // Send success response
                         let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<!DOCTYPE html><html><head><title>AMOS Companion</title></head><body><h1>Login Successful!</h1><p>You can close this window and return to AMOS Companion.</p><script>window.close();</script></body></html>";
                         stream.write_all(response.as_bytes()).ok();
-                        
+
                         if !user_id.is_empty() {
                             info!("Got user_id: {}", user_id);
                             server_tx.send(Ok((user_id.clone(), email.clone()))).ok();
                         } else {
                             info!("No user_id in callback");
-                            server_tx.send(Err("No user_id in callback".to_string())).ok();
+                            server_tx
+                                .send(Err("No user_id in callback".to_string()))
+                                .ok();
                         }
                     }
                 }
@@ -260,7 +287,7 @@ async fn sign_in_oauth(
             }
         }
     });
-    
+
     // Get the Google OAuth URL from our backend
     // First, call our endpoint to get the proper Google OAuth URL
     // Convert API URL to frontend URL
@@ -270,15 +297,15 @@ async fn sign_in_oauth(
         .replace("://api/", "://app/")
         .replace("/api", "")
         .replace("amos-api.", "app.amos.");
-    
+
     let callback_base = format!("http://127.0.0.1:{}", port);
     let google_url_endpoint = format!(
         "{}/api/auth/companion/google-url?callbackUrl={}",
         frontend_url, callback_base
     );
-    
+
     info!("Getting Google OAuth URL from: {}", google_url_endpoint);
-    
+
     // Fetch the Google OAuth URL from our backend
     let client = reqwest::Client::new();
     let oauth_response = client
@@ -287,63 +314,72 @@ async fn sign_in_oauth(
         .send()
         .await
         .map_err(|e| format!("Failed to get OAuth URL: {}", e))?;
-    
+
     if !oauth_response.status().is_success() {
         let status = oauth_response.status();
         let error_text = oauth_response.text().await.unwrap_or_default();
-        return Err(format!("Failed to get OAuth URL: {} - {}", status, error_text));
+        return Err(format!(
+            "Failed to get OAuth URL: {} - {}",
+            status, error_text
+        ));
     }
-    
+
     let oauth_data: serde_json::Value = oauth_response
         .json()
         .await
         .map_err(|e| format!("Failed to parse OAuth response: {}", e))?;
-    
+
     let oauth_url = oauth_data["url"]
         .as_str()
         .ok_or_else(|| "No URL in OAuth response".to_string())?;
-    
+
     info!("Got Google OAuth URL, opening browser...");
-    
+
     #[cfg(target_os = "macos")]
     std::process::Command::new("open")
         .arg(&oauth_url)
         .spawn()
         .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
-    
+
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open")
         .arg(oauth_url)
         .spawn()
         .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
-    
+
     #[cfg(target_os = "windows")]
     std::process::Command::new("cmd")
         .args(["/C", "start", "", &oauth_url])
         .spawn()
         .map_err(|e| format!("Failed to open OAuth URL: {}", e))?;
-    
+
     // Wait for the callback (with timeout)
     info!("Waiting for OAuth callback...");
     let result = rx.recv_timeout(Duration::from_secs(120));
-    
+
     match result {
         Ok(Ok((user_id, email))) => {
             info!("OAuth successful: user_id={}, email={}", user_id, email);
-            
+
             // Save user info to config
             let mut config = state.config_store.lock().await;
             config.set_api_url(api_url);
             config.set_user_id(Some(user_id.clone()));
             config.set_user_email(Some(email.clone()));
-            config.save().map_err(|e| format!("Failed to save config: {}", e))?;
-            
+            config
+                .save()
+                .map_err(|e| format!("Failed to save config: {}", e))?;
+
             // Emit login success event to frontend
-            app.emit("login-success", serde_json::json!({
-                "user_id": user_id,
-                "email": email
-            })).map_err(|e| format!("Failed to emit event: {}", e))?;
-            
+            app.emit(
+                "login-success",
+                serde_json::json!({
+                    "user_id": user_id,
+                    "email": email
+                }),
+            )
+            .map_err(|e| format!("Failed to emit event: {}", e))?;
+
             Ok(())
         }
         Ok(Err(e)) => {
@@ -358,19 +394,16 @@ async fn sign_in_oauth(
 }
 
 #[tauri::command]
-async fn start_agent(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+async fn start_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut config = state.config_store.lock().await;
     let api_url = config.get_api_url();
-    
+
     // ─── Check if user is signed in ─────────────────────────────────────────────
     let user_id = config.get_user_id().ok_or_else(|| {
         error!("Not signed in - please sign in first");
         "Please sign in first using sign_in()".to_string()
     })?;
-    
+
     // Auto-install device-agent if not present
     if !installer::is_installed() {
         info!("Device agent not found, installing...");
@@ -386,19 +419,21 @@ async fn start_agent(
     }
 
     // ─── Auto-setup: Get or create workspace ─────────────────────────────────
-    
+
     // Check if we have workspace_id
     let workspace_id = config.get_workspace_id();
-    
+
     if workspace_id.is_none() {
         info!("No workspace found, creating default workspace...");
         drop(config); // Release lock for HTTP call
-        
+
         match wm::ensure_workspace_exists(&api_url, &user_id).await {
             Ok(ws_id) => {
                 config = state.config_store.lock().await;
                 config.set_workspace_id(Some(ws_id.clone()));
-                config.save().map_err(|e| format!("Failed to save workspace_id: {}", e))?;
+                config
+                    .save()
+                    .map_err(|e| format!("Failed to save workspace_id: {}", e))?;
             }
             Err(e) => {
                 error!("Failed to create workspace: {}", e);
@@ -408,34 +443,45 @@ async fn start_agent(
     }
 
     // ─── Auto-setup: Register device-agent if needed ─────────────────────────
-    
+
     let device_key = config.get_device_agent_key();
     let device_secret = config.get_device_agent_secret();
     let saved_agent_id = config.get_agent_id();
-    
+
     if device_key.is_none() || device_secret.is_none() {
         info!("No device-agent credentials found, registering...");
-        
+
         // Get workspace_id before dropping config
         let ws_id = config.get_workspace_id().unwrap_or_default();
         drop(config); // Release lock for HTTP call
-        
+
         let hostname = wm::get_hostname();
-        
+
         match wm::register_device_agent(&api_url, &ws_id, &user_id, &hostname).await {
             Ok((api_key, api_secret, agent_id)) => {
                 config = state.config_store.lock().await;
                 // Clone before saving since we'll use them again
                 config.set_device_agent_key(Some(api_key.clone()));
                 config.set_device_agent_secret(Some(api_secret.clone()));
-                config.save().map_err(|e| format!("Failed to save credentials: {}", e))?;
-                
+                config
+                    .save()
+                    .map_err(|e| format!("Failed to save credentials: {}", e))?;
+
                 info!("Device-agent registered successfully");
-                
+
                 // Now start the agent with credentials
                 info!("Starting AMOS device agent with API URL: {}", api_url);
-                
-                match agent.start(&api_url, &agent_id, Some(api_key), Some(api_secret), Some(ws_id)).await {
+
+                match agent
+                    .start(
+                        &api_url,
+                        &agent_id,
+                        Some(api_key),
+                        Some(api_secret),
+                        Some(ws_id),
+                    )
+                    .await
+                {
                     Ok(_) => {
                         info!("Agent started successfully");
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -460,10 +506,19 @@ async fn start_agent(
     } else {
         // We have credentials, just start the agent
         let ws_id = config.get_workspace_id().unwrap_or_default();
-        
+
         info!("Starting AMOS device agent with API URL: {}", api_url);
-        
-        match agent.start(&api_url, &saved_agent_id, device_key, device_secret, Some(ws_id)).await {
+
+        match agent
+            .start(
+                &api_url,
+                &saved_agent_id,
+                device_key,
+                device_secret,
+                Some(ws_id),
+            )
+            .await
+        {
             Ok(_) => {
                 info!("Agent started successfully");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -483,10 +538,7 @@ async fn start_agent(
 }
 
 #[tauri::command]
-async fn stop_agent(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+async fn stop_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut agent = state.agent_manager.lock().await;
 
     if !agent.is_running() {
@@ -503,10 +555,7 @@ async fn stop_agent(
 }
 
 #[tauri::command]
-async fn save_config(
-    api_url: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+async fn save_config(api_url: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut config = state.config_store.lock().await;
     config.set_api_url(api_url);
     config.save().map_err(|e| e.to_string())?;
@@ -515,8 +564,7 @@ async fn save_config(
 
 #[tauri::command]
 async fn open_web_ui() -> Result<(), String> {
-    open::that("https://app.amos.moo-vpn.online/devices")
-        .map_err(|e| e.to_string())
+    open::that("https://app.amos.moo-vpn.online/devices").map_err(|e| e.to_string())
 }
 
 // ─── Device Control Commands ─────────────────────────────────────────────────
@@ -694,10 +742,7 @@ async fn stop_scrcpy_mirror(state: tauri::State<'_, AppState>) -> Result<(), Str
 
 // Legacy commands (kept for backward compatibility)
 #[tauri::command]
-async fn start_mirror(
-    serial: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+async fn start_mirror(serial: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     info!("Starting mirror for device: {}", serial);
     let mut server = state.scrcpy_server.lock().await;
 
@@ -737,11 +782,7 @@ async fn mirror_control(
 }
 
 #[tauri::command]
-async fn mirror_tap(
-    x: i32,
-    y: i32,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+async fn mirror_tap(x: i32, y: i32, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let server = state.scrcpy_server.lock().await;
     server.tap(x, y)
 }
@@ -812,13 +853,13 @@ async fn start_video_stream(
 #[tauri::command]
 async fn stop_video_stream(state: tauri::State<'_, AppState>) -> Result<(), String> {
     info!("Stopping video stream");
-    
+
     let mut stream = state.video_stream.lock().await;
     if let Some(ref mut s) = *stream {
         s.stop();
     }
     *stream = None;
-    
+
     info!("Video stream stopped");
     Ok(())
 }

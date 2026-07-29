@@ -255,10 +255,7 @@ impl ScrcpyStream {
 
                 // Method 1: Try to activate scrcpy app by name (most reliable)
                 let script1 = r#"tell application "scrcpy" to activate"#;
-                let r1 = Command::new("osascript")
-                    .arg("-e")
-                    .arg(script1)
-                    .output();
+                let r1 = Command::new("osascript").arg("-e").arg(script1).output();
 
                 // Check if scrcpy was actually activated (no error)
                 let activated = match r1 {

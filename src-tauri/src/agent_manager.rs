@@ -92,10 +92,7 @@ impl AgentManager {
         // Get working directory from installer
         let agent_cwd = device_agent_installer::get_working_dir();
 
-        info!(
-            "Device-agent working dir: {:?}",
-            agent_cwd
-        );
+        info!("Device-agent working dir: {:?}", agent_cwd);
 
         // Spawn Python directly so tokio's Child tracks the actual agent process.
         // We avoid `uv run` because it launches a wrapper that exits while the
@@ -180,10 +177,10 @@ impl AgentManager {
     pub fn get_status(&self) -> AgentStatus {
         // Query connected ADB devices
         let connected_devices = Self::get_connected_devices();
-        
+
         // Check if agent is running
         let running = self.is_running();
-        
+
         AgentStatus {
             agent_online: true,
             agent_running: running,

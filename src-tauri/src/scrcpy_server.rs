@@ -41,6 +41,13 @@ const DEFAULT_BITRATE: i32 = 8000000; // 8 Mbps
 const DEFAULT_MAX_FPS: i32 = 60;
 const DEFAULT_MAX_WIDTH: i32 = 1920;
 
+/// Frame payload for frontend (matches frontend contract: {bytes: [...], key: true|false})
+#[derive(serde::Serialize)]
+struct ScrcpyFramePayload<'a> {
+    bytes: &'a [u8],
+    key: bool,
+}
+
 /// Read a packet from scrcpy-server.
 /// scrcpy protocol: [4 bytes: big-endian size][N bytes: data]
 fn read_packet(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
@@ -346,22 +353,12 @@ impl ScrcpyServer {
         }
 
         // Step 6: Start scrcpy-server on device
-        // scrcpy v4.1 server command (verified against official docs):
-        //   CLASSPATH=/data/local/tmp/scrcpy-server.jar \
-        //     app_process / com.genymobile.scrcpy.Server <version> \
-        //     [key=value options]
-        // Valid keys (from Options.java): video_bit_rate, max_fps, max_size,
-        //   tunnel_forward, video, audio, send_device_meta, etc.
-        // The OLD keys (bitrate/maxFps/maxSize/tunnel) caused server to
-        // immediately exit with IllegalArgumentException("Invalid key=value pair")
+        // FIXED: tunnel_forward=true with adb forward (required combination)
+        // audio=false, control=false since we only read video
         info!("Starting scrcpy-server on device");
 
-        // Correct v4.1 argument names (lowercase, underscore-separated).
-        // tunnel_forward=false means the server uses the existing
-        // `adb forward localabstract:scrcpy` for TCP instead of trying to
-        // connect back to a reverse adb tunnel.
         let start_cmd = format!(
-            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} video_bit_rate={} max_fps={} max_size={} tunnel_forward=false",
+            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} tunnel_forward=true audio=false control=false video_bit_rate={} max_fps={} max_size={}",
             device_server_path,
             SCRCPY_SERVER_VERSION,
             DEFAULT_BITRATE,
@@ -386,48 +383,40 @@ impl ScrcpyServer {
         // Try to connect to verify server is ready
         let addr = format!("127.0.0.1:{}", port);
         let server_ready = std::net::TcpStream::connect_timeout(
-            &addr.parse().unwrap_or_else(|_| "127.0.0.1:8888".parse().unwrap()),
+            &addr
+                .parse()
+                .unwrap_or_else(|_| "127.0.0.1:8888".parse().unwrap()),
             std::time::Duration::from_secs(2),
-        ).is_ok();
+        )
+        .is_ok();
 
         if server_ready {
             info!("scrcpy-server TCP connection successful");
             self.debug_info += "\nTCP connection to server successful";
         }
 
-        // Verify scrcpy-server is running on device
-        // Check for app_process (which runs scrcpy-server)
+        // Informational: check if scrcpy-server process is running on device
+        // (diagnostic only - real liveness is TCP connection in start_with_events)
         let ps_result = Command::new(&adb_path)
             .args(["-s", &self.serial, "shell", "ps", "-A"])
             .output();
 
-        let process_alive = if let Ok(out) = ps_result {
+        if let Ok(out) = ps_result {
             let stdout = String::from_utf8_lossy(&out.stdout);
-            // Look for app_process or scrcpy in process list
-            // The scrcpy-server runs as app_process, not as a process named "scrcpy"
             if stdout.contains("app_process") && stdout.contains("scrcpy") {
-                info!("scrcpy-server process found on device");
-                self.debug_info += "\nscrcpy-server process found on device";
-                true
-            } else if stdout.contains("scrcpy") {
-                info!("scrcpy-server process found on device");
-                self.debug_info += "\nscrcpy-server process found on device";
-                true
+                info!("scrcpy-server process found on device (diagnostic)");
+                self.debug_info += "\nscrcpy-server process found (diagnostic)";
             } else {
-                warn!(
-                    "scrcpy-server process NOT found on device! stdout: {}",
-                    stdout
+                info!(
+                    "scrcpy-server process check: not found in ps output (server may have exited)"
                 );
-                self.debug_info += "\nscrcpy-server process NOT found on device!";
-                false
+                self.debug_info += "\nscrcpy-server process not in ps (may be normal)";
             }
-        } else {
-            warn!("Could not run `ps -A` to check scrcpy-server process");
-            false
-        };
+        }
 
-        // Return whether the scrcpy-server process is actually alive on device
-        Ok(process_alive)
+        // Always return Ok(true) - TCP connection is the real liveness proof
+        // (checked in start_with_events)
+        Ok(true)
     }
 
     fn find_available_port(&self) -> u16 {
@@ -451,236 +440,198 @@ impl ScrcpyServer {
     pub const SCRCPY_FRAME_EVENT: &str = "scrcpy-frame";
 
     /// Start scrcpy-server and emit frames via Tauri events.
-    /// This allows the frontend to render frames in the #mirror-screen div.
+    /// Implements scrcpy 4.x wire protocol.
     ///
-    /// Returns (width, height) on success.
+    /// Returns (width, height, running) on success.
     pub fn start_with_events(&mut self, app: &AppHandle) -> Result<(u32, u32, bool), String> {
-        // Start scrcpy-server (uses existing start() logic)
-        // Debug info is stored in self.debug_info and should be emitted by caller
-        let process_alive = self.start()?;
-
-        // If start() returned false (process not alive on device), return
-        // immediately without spawning the frame reader thread.
-        if !process_alive {
-            return Ok((0, 0, false));
-        }
+        // Start scrcpy-server
+        self.start()?;
 
         let port = self.local_port;
         let serial = self.serial.clone();
         let running = Arc::new(std::sync::Mutex::new(true));
         let running_clone = running.clone();
-
-        // Clone app handle for the thread
         let app_clone = app.clone();
 
-        // Emit that stream started
+        // Synchronous handshake with scrcpy-server
+        info!("Connecting to scrcpy-server on port {}", port);
+        let mut stream = TcpStream::connect_timeout(
+            &format!("127.0.0.1:{}", port).parse().unwrap(),
+            std::time::Duration::from_secs(5),
+        )
+        .map_err(|e| format!("Failed to connect to scrcpy-server: {}", e))?;
+
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .ok();
+        stream.set_nodelay(true).ok();
+
+        // Step 1: Read dummy byte (forward mode handshake)
+        let mut dummy = [0u8; 1];
+        std::io::Read::read_exact(&mut stream, &mut dummy)
+            .map_err(|e| format!("Failed to read dummy byte: {}", e))?;
+        info!("Read dummy byte: {:?}", dummy);
+
+        // Step 2: Read device meta (u16 length + UTF-8 name)
+        let mut len_buf = [0u8; 2];
+        std::io::Read::read_exact(&mut stream, &mut len_buf)
+            .map_err(|e| format!("Failed to read meta length: {}", e))?;
+        let meta_len = u16::from_be_bytes(len_buf) as usize;
+        let mut meta_buf = vec![0u8; meta_len];
+        std::io::Read::read_exact(&mut stream, &mut meta_buf)
+            .map_err(|e| format!("Failed to read device meta: {}", e))?;
+        let device_name = String::from_utf8_lossy(&meta_buf);
+        info!("Device name: {}", device_name);
+
+        // Step 3: Read codec id (4 ASCII bytes, e.g. "h264")
+        let mut codec_buf = [0u8; 4];
+        std::io::Read::read_exact(&mut stream, &mut codec_buf)
+            .map_err(|e| format!("Failed to read codec id: {}", e))?;
+        let codec = String::from_utf8_lossy(&codec_buf);
+        info!("Codec: {}", codec);
+
+        // Step 4: Read session packet (12 bytes, flag 0x80) for width/height
+        let mut session_buf = [0u8; 12];
+        std::io::Read::read_exact(&mut stream, &mut session_buf)
+            .map_err(|e| format!("Failed to read session packet: {}", e))?;
+
+        let mut width: u32 = DEFAULT_MAX_WIDTH as u32;
+        let mut height: u32 = 1080;
+
+        if session_buf[0] & 0x80 != 0 {
+            // Session packet
+            width = u32::from_be_bytes([
+                session_buf[4],
+                session_buf[5],
+                session_buf[6],
+                session_buf[7],
+            ]);
+            height = u32::from_be_bytes([
+                session_buf[8],
+                session_buf[9],
+                session_buf[10],
+                session_buf[11],
+            ]);
+            info!("Session: {}x{}", width, height);
+        } else {
+            warn!("First packet was not session packet, reading media...");
+        }
+
+        // Emit stream started with dimensions
         let _ = app.emit(
             "scrcpy-stream-started",
             serde_json::json!({
                 "serial": serial,
                 "port": port,
+                "width": width,
+                "height": height,
+                "message": "scrcpy 4.x protocol handshake complete",
             }),
         );
 
-        // Spawn thread to read frames from TCP and emit via Tauri events
+        info!("Starting scrcpy media loop ({}x{})", width, height);
+
+        // Spawn thread for ongoing media stream
         thread::spawn(move || {
-            info!("Starting scrcpy frame reader thread for port {}", port);
+            let mut stream = stream;
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+                .ok();
 
-            // Connect to local port (forwarded to device scrcpy-server)
-            let addr = format!("127.0.0.1:{}", port);
-            let mut stream = match TcpStream::connect(&addr) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!("Failed to connect to scrcpy-server at {}: {}", addr, e);
-                    return;
-                }
-            };
+            let mut pending_config: Option<Vec<u8>> = None;
+            let mut frame_count: u64 = 0;
 
-            // Set read timeout to allow checking running flag
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(2000)));
-
-            info!("Waiting for scrcpy device meta...");
-
-            // Read device meta (first packet)
-            // scrcpy-server sends device meta as first packet
-            let meta = match read_packet(&mut stream) {
-                Ok(data) => data,
-                Err(e) => {
-                    warn!(
-                        "Failed to read scrcpy device meta: {} - may be sending raw H264",
-                        e
-                    );
-                    // Try to continue anyway - might get H264 directly
-                    vec![]
-                }
-            };
-
-            if !meta.is_empty() {
-                info!(
-                    "scrcpy device meta received ({} bytes): {:?}",
-                    meta.len(),
-                    String::from_utf8_lossy(&meta[..meta.len().min(200)])
-                );
-            } else {
-                info!("No device meta received, assuming raw H264 stream");
-            }
-
-            // Parse meta to get dimensions
-            let (width, height) = if meta.is_empty() {
-                // Default dimensions if no meta
-                (1920u32, 1080u32)
-            } else {
-                parse_device_meta(&meta)
-            };
-            info!("scrcpy device screen: {}x{}", width, height);
-
-            // Emit dimensions
-            let _ = app_clone.emit(
-                "scrcpy-stream-started",
-                serde_json::json!({
-                    "serial": serial,
-                    "port": port,
-                    "width": width,
-                    "height": height,
-                    "message": "Starting frame read loop...",
-                }),
-            );
-
-            // Read frames
-            info!("Starting frame read loop...");
-            let _ = app_clone.emit(
-                "scrcpy-debug",
-                &format!("Starting frame read loop... port={}", port),
-            );
-
-            // Try to peek if there's any data available first
-            let mut peek_buf = [0u8; 1];
-            match stream.peek(&mut peek_buf) {
-                Ok(0) => {
-                    info!("scrcpy: no data available yet (peek returned 0)");
-                    let _ = app_clone.emit("scrcpy-debug", "scrcpy: no data available on peek");
-                }
-                Ok(n) => {
-                    info!("scrcpy: data available (peek returned {} bytes)", n);
-                    let _ = app_clone.emit(
-                        "scrcpy-debug",
-                        &format!("scrcpy: data available on peek ({} bytes)", n),
-                    );
-                }
-                Err(e) => {
-                    info!("scrcpy: peek error: {}", e);
-                    let _ = app_clone.emit("scrcpy-debug", &format!("scrcpy: peek error: {}", e));
-                }
-            }
-
-            let mut frame_count = 0u64;
-            let mut consecutive_timeouts = 0u32;
             loop {
                 if !*running_clone.lock().unwrap() {
                     info!("scrcpy frame reader stopped");
                     break;
                 }
 
-                // Try peek first to see if data is available
-                let mut peek_buf = [0u8; 1];
-                match stream.peek(&mut peek_buf) {
-                    Ok(0) => {
-                        // No data available, wait a bit
-                        thread::sleep(Duration::from_millis(100));
-                        consecutive_timeouts += 1;
-                        if consecutive_timeouts.is_multiple_of(10) {
-                            info!("scrcpy: still waiting... ({})", consecutive_timeouts);
-                            let _ = app_clone.emit(
-                                "scrcpy-debug",
-                                &format!("scrcpy: still waiting... ({})", consecutive_timeouts),
-                            );
-                        }
-                        if consecutive_timeouts > 100 {
-                            warn!("scrcpy: no frames after 100 checks, stopping");
-                            let _ = app_clone.emit(
-                                "scrcpy-debug",
-                                "scrcpy: no frames after 100 checks, stopping",
-                            );
-                            break;
-                        }
+                let mut hdr = [0u8; 12];
+                match std::io::Read::read_exact(&mut stream, &mut hdr) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         continue;
                     }
-                    Ok(_) => {
-                        // Data available, try to read
-                        consecutive_timeouts = 0;
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // WouldBlock on peek too, just continue
-                        continue;
+                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                        info!("scrcpy server disconnected");
+                        break;
                     }
                     Err(e) => {
-                        error!("scrcpy peek error: {}", e);
-                        let _ =
-                            app_clone.emit("scrcpy-debug", &format!("scrcpy peek error: {}", e));
+                        error!("scrcpy header read: {}", e);
                         break;
                     }
                 }
 
-                match read_packet(&mut stream) {
-                    Ok(packet) => {
-                        frame_count += 1;
-                        // Emit frame data via Tauri event
-                        if let Err(e) = app_clone.emit(ScrcpyServer::SCRCPY_FRAME_EVENT, &packet) {
-                            error!("Failed to emit scrcpy frame: {}", e);
-                            break;
-                        }
+                let b0 = hdr[0];
+                if b0 & 0x80 != 0 {
+                    // Session packet (rotation change) - update dimensions
+                    let w = u32::from_be_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]);
+                    let h = u32::from_be_bytes([hdr[8], hdr[9], hdr[10], hdr[11]]);
+                    let _ = app_clone.emit(
+                        "scrcpy-stream-started",
+                        serde_json::json!({
+                            "serial": serial,
+                            "width": w,
+                            "height": h,
+                        }),
+                    );
+                    continue;
+                }
 
-                        // Log first few frames and periodically
-                        if frame_count <= 5 || frame_count.is_multiple_of(50) {
-                            info!(
-                                "scrcpy frame {} emitted ({} bytes)",
-                                frame_count,
-                                packet.len()
-                            );
-                            let _ = app_clone.emit(
-                                "scrcpy-debug",
-                                &format!(
-                                    "scrcpy frame {} emitted ({} bytes)",
-                                    frame_count,
-                                    packet.len()
-                                ),
-                            );
+                // Media packet
+                let packet_size = u32::from_be_bytes([hdr[8], hdr[9], hdr[10], hdr[11]]) as usize;
+                let is_key = (b0 & 0x20) != 0;
+                let is_config = (b0 & 0x40) != 0;
+
+                let mut payload = vec![0u8; packet_size];
+                if let Err(e) = std::io::Read::read_exact(&mut stream, &mut payload) {
+                    error!("scrcpy body read: {}", e);
+                    break;
+                }
+
+                if is_config {
+                    // SPS/PPS config packet - stash for first keyframe
+                    pending_config = Some(payload);
+                    continue;
+                }
+
+                // Emit frame with correct payload shape {bytes: [...], key: true|false}
+                let (bytes, key) = if is_key {
+                    let combined = match pending_config.take() {
+                        Some(cfg) => {
+                            let mut v = cfg;
+                            v.extend_from_slice(&payload);
+                            v
                         }
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // Timeout, continue checking
-                        consecutive_timeouts += 1;
-                        if consecutive_timeouts > 100 {
-                            warn!(
-                                "scrcpy: no frames received for {} timeouts, stopping",
-                                consecutive_timeouts
-                            );
-                            let _ = app_clone.emit(
-                                "scrcpy-debug",
-                                &format!(
-                                    "No frames for {} timeouts, stopping",
-                                    consecutive_timeouts
-                                ),
-                            );
-                            break;
-                        }
-                        continue;
-                    }
-                    Err(e) => {
-                        error!("scrcpy read error after {} frames: {}", frame_count, e);
-                        let _ =
-                            app_clone.emit("scrcpy-debug", &format!("scrcpy read error: {}", e));
-                        break;
-                    }
+                        None => payload,
+                    };
+                    (combined, true)
+                } else {
+                    (payload, false)
+                };
+
+                let _ = app_clone.emit(
+                    ScrcpyServer::SCRCPY_FRAME_EVENT,
+                    &ScrcpyFramePayload { bytes: &bytes, key },
+                );
+
+                frame_count += 1;
+                if frame_count <= 3 || frame_count.is_multiple_of(50) {
+                    info!(
+                        "scrcpy frame {} ({} bytes, key={})",
+                        frame_count,
+                        bytes.len(),
+                        key
+                    );
                 }
             }
 
             let _ = app_clone.emit("scrcpy-stream-ended", ());
-            info!("scrcpy frame reader ended: {} frames", frame_count);
+            info!("scrcpy media loop ended: {} frames", frame_count);
         });
 
-        // Return dimensions and true process_alive (will be updated by frame reader thread)
-        Ok((DEFAULT_MAX_WIDTH as u32, 0, true)) // Will be updated when meta is received
+        Ok((width, height, true))
     }
 
     /// Stop the frame reader thread
