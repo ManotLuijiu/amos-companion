@@ -78,36 +78,54 @@ fn parse_device_meta(meta: &[u8]) -> (u32, u32) {
 
 /// Path to scrcpy-server JAR
 fn get_scrcpy_server_path() -> PathBuf {
-    let candidates = vec![
-        // Try relative to current dir (for dev)
-        PathBuf::from(".").join("scrcpy-server"),
-        PathBuf::from("..").join("scrcpy-server"),
-        // Try relative to cargo manifest (for release builds)
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join("scrcpy-server"),
-        // Common locations
-        PathBuf::from("/usr/local/share/scrcpy-server.jar"),
-        PathBuf::from("/opt/scrcpy-server/scrcpy-server.jar"),
-        // Temp dir (if previously downloaded)
-        std::env::temp_dir().join("scrcpy-server.jar"),
-    ];
+    // Collect all candidate paths
+    let mut candidates: Vec<PathBuf> = Vec::new();
 
-    for path in &candidates {
-        let jar_path = if path.is_dir() {
-            path.join("scrcpy-server.jar")
-        } else {
-            path.clone()
-        };
+    // 1. Bundled resource (from tauri.conf.json resources)
+    //    In dev: src-tauri/scrcpy-server/scrcpy-server.jar
+    //    In release: relative to executable
+    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
+        candidates.push(exe_dir.join("scrcpy-server.jar"));
+        candidates.push(exe_dir.join("resources/scrcpy-server.jar"));
+    }
+
+    // 2. Dev paths (relative to cargo manifest)
+    let cargo_dir = std::env::current_dir().unwrap_or_default();
+    candidates.push(cargo_dir.join("src-tauri").join("scrcpy-server").join("scrcpy-server.jar"));
+    candidates.push(cargo_dir.join("scrcpy-server").join("scrcpy-server.jar"));
+
+    // 3. macOS app bundle paths
+    #[cfg(target_os = "macos")]
+    if let Some(exe_path) = std::env::current_exe().ok() {
+        // Navigate up from: Contents/MacOS/amos-companion -> Contents -> AMOS Companion.app -> Resources
+        if let Some(contents) = exe_path.parent() {
+            if let Some(_bundle) = contents.parent() {
+                // bundle/Contents/Resources
+                candidates.push(contents.join("Resources").join("scrcpy-server.jar"));
+            }
+        }
+    }
+
+    // 4. Common install locations
+    candidates.push(PathBuf::from("/usr/local/share/scrcpy-server.jar"));
+    candidates.push(PathBuf::from("/opt/scrcpy-server/scrcpy-server.jar"));
+
+    // 5. Temp dir (if previously downloaded)
+    candidates.push(std::env::temp_dir().join("scrcpy-server.jar"));
+
+    for jar_path in &candidates {
         if jar_path.exists() {
             info!("Found scrcpy-server at: {:?}", jar_path);
-            return jar_path;
+            return jar_path.clone();
         }
     }
 
     // Return temp path even if not exists (will try to download)
     let download_path = std::env::temp_dir().join("scrcpy-server.jar");
-    warn!("scrcpy-server not found in any candidate paths, will try to download");
+    warn!(
+        "scrcpy-server not found in {:?}, will try to download",
+        candidates
+    );
     download_path
 }
 
