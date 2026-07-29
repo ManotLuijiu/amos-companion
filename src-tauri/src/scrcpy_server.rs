@@ -89,7 +89,7 @@ fn get_scrcpy_server_path() -> PathBuf {
             info!("DEBUG: exe={:?}, exe_dir={:?}", exe, exe_dir);
             candidates.push(exe_dir.join("scrcpy-server.jar"));
             candidates.push(exe_dir.join("resources/scrcpy-server.jar"));
-            
+
             // 3. macOS app bundle: Contents/MacOS/amos-companion -> Contents/Resources
             if let Some(contents) = exe_dir.parent() {
                 info!("DEBUG: contents={:?}", contents);
@@ -102,7 +102,12 @@ fn get_scrcpy_server_path() -> PathBuf {
 
     // 2. Dev paths (relative to cargo manifest)
     let cargo_dir = std::env::current_dir().unwrap_or_default();
-    candidates.push(cargo_dir.join("src-tauri").join("scrcpy-server").join("scrcpy-server.jar"));
+    candidates.push(
+        cargo_dir
+            .join("src-tauri")
+            .join("scrcpy-server")
+            .join("scrcpy-server.jar"),
+    );
     candidates.push(cargo_dir.join("scrcpy-server").join("scrcpy-server.jar"));
 
     // 4. Common install locations
@@ -112,7 +117,10 @@ fn get_scrcpy_server_path() -> PathBuf {
     // 5. Temp dir (if previously downloaded)
     candidates.push(std::env::temp_dir().join("scrcpy-server.jar"));
 
-    info!("DEBUG: Checking {} candidate paths for scrcpy-server.jar", candidates.len());
+    info!(
+        "DEBUG: Checking {} candidate paths for scrcpy-server.jar",
+        candidates.len()
+    );
     for jar_path in &candidates {
         let exists = jar_path.exists();
         info!("DEBUG: path={:?} exists={}", jar_path, exists);
