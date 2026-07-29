@@ -332,12 +332,19 @@ impl ScrcpyServer {
         info!("scrcpy-server command: {}", start_cmd);
         self.debug_info += &format!("\nscrcpy-server command: {}", start_cmd);
 
+        // Launch app_process directly (NO `nohup`). With `nohup CLASSPATH=… app_process`,
+        // the shell treats `CLASSPATH=…` as a literal argument to nohup (not an env
+        // assignment), so nohup tries to exec the string "CLASSPATH=…" as a program
+        // and fails with "exec CLASSPATH=…: No such file or directory" — app_process
+        // never starts. Without nohup, `CLASSPATH=…` is in prefix position, the shell
+        // applies it to app_process, and the server runs (held alive by this spawned
+        // adb child; stop() kills the child → adb disconnect → server exits, then the
+        // pkill below cleans up any survivor).
         let child = Command::new(&adb_path)
             .args([
                 "-s",
                 &self.serial,
                 "shell",
-                "nohup",
                 &start_cmd,
                 ">/dev/null",
                 "2>/data/local/tmp/scrcpy-server.err",
@@ -468,15 +475,20 @@ impl ScrcpyServer {
 
         stream.set_nodelay(true).ok();
 
-        // Read device meta (u16 length + UTF-8 name)
-        let mut len_buf = [0u8; 2];
-        std::io::Read::read_exact(&mut stream, &mut len_buf)
-            .map_err(|e| format!("Failed to read meta length: {}", e))?;
-        let meta_len = u16::from_be_bytes(len_buf) as usize;
-        let mut meta_buf = vec![0u8; meta_len];
+        // Read device meta: a FIXED 64-byte field (device name, NUL-padded).
+        // scrcpy's DesktopConnection.sendDeviceMeta() writes a fixed-size buffer
+        // (DEVICE_NAME_FIELD_LENGTH = 64) with NO length prefix. The previous code
+        // read a u16 length, which grabbed the first 2 chars of the name ("SM" =
+        // 0x534d = 21325) and then blocked trying to read 21325 bytes.
+        const DEVICE_NAME_FIELD_LENGTH: usize = 64;
+        let mut meta_buf = [0u8; DEVICE_NAME_FIELD_LENGTH];
         std::io::Read::read_exact(&mut stream, &mut meta_buf)
             .map_err(|e| format!("Failed to read device meta: {}", e))?;
-        let device_name = String::from_utf8_lossy(&meta_buf);
+        let name_end = meta_buf
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(DEVICE_NAME_FIELD_LENGTH);
+        let device_name = String::from_utf8_lossy(&meta_buf[..name_end]);
         info!("Device name: {}", device_name);
 
         // Read codec id (4 ASCII bytes, e.g. "h264")
