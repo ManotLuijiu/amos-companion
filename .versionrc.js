@@ -47,5 +47,6 @@ module.exports = {
 	tagPrefix: "companion/v",
 	skip: {
 		changelog: true,
+		postbump: true,
 	},
 };
