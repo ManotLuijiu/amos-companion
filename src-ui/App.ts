@@ -2345,7 +2345,11 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 		}, MIRROR_REFRESH_MS);
 	}
 
-	if (mirrorScreen) mirrorScreen.style.display = "block";
+	// Only show the <img> when using screenshot polling. When a video stream
+	// (scrcpy or ADB) started, it hides the <img> and shows the canvas itself;
+	// re-showing the <img> here would display BOTH elements at once (a stale
+	// screenshot + the live video, each ~50% of the panel).
+	if (!videoStarted && mirrorScreen) mirrorScreen.style.display = "block";
 	if (mirrorLoading) mirrorLoading.style.display = "none";
 	addLog("info", `Mirror started for ${device.serial}`);
 
