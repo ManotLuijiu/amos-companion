@@ -9,10 +9,12 @@
 // (manual edit, a broken .versionrc, a re-added shadowing config), this guard
 // turns it into a build failure.
 import { readFileSync } from "fs";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 
-const scriptDir = new URL(".", import.meta.url).pathname;
-const rootDir = resolve(scriptDir, "..");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const rootDir = resolve(__dirname, "..");
 
 function readJsonVersion(file: string): string {
 	let json;
