@@ -1155,17 +1155,30 @@ const SWIPE_DURATION_MS = 250; // Android input swipe duration
  * Returns null if click is in letterbox area
  */
 function getScreenCoords(event: PointerEvent): { x: number; y: number } | null {
-	const mirrorScreen = document.getElementById(
-		"mirror-screen",
-	) as HTMLImageElement;
-	if (!mirrorScreen || !mirrorScreen.naturalWidth) return null;
-
-	const container = mirrorScreen.parentElement;
+	// Use the video <canvas> when it is visible (scrcpy / ADB video); otherwise
+	// fall back to the screenshot <img>. Both are children of
+	// #mirror-screen-container, so the container rect is the same for either.
+	const container = document.getElementById("mirror-screen-container");
 	if (!container) return null;
+	const canvasEl = document.getElementById(
+		"mirror-screen-canvas",
+	) as HTMLCanvasElement | null;
+	const imgEl = document.getElementById(
+		"mirror-screen",
+	) as HTMLImageElement | null;
+	let imgWidth: number;
+	let imgHeight: number;
+	if (canvasEl && canvasEl.style.display !== "none" && canvasEl.width) {
+		imgWidth = canvasEl.width;
+		imgHeight = canvasEl.height;
+	} else if (imgEl && imgEl.naturalWidth) {
+		imgWidth = imgEl.naturalWidth;
+		imgHeight = imgEl.naturalHeight;
+	} else {
+		return null;
+	}
 
 	const containerRect = container.getBoundingClientRect();
-	const imgWidth = mirrorScreen.naturalWidth;
-	const imgHeight = mirrorScreen.naturalHeight;
 	const containerWidth = containerRect.width;
 	const containerHeight = containerRect.height;
 
@@ -2698,14 +2711,21 @@ function setupEventListeners(): void {
 	btnEnter?.addEventListener("click", handleControlEnter);
 
 	// Screen gesture handler for built-in mirror - use pointer events for tap and swipe
+	// Pointer handlers must be bound to BOTH the screenshot <img> and the video
+	// <canvas>: only one is visible at a time, and whichever is on top receives
+	// the events. Without the canvas binding, taps/swipes are dead in scrcpy mode.
 	const mirrorScreen = document.getElementById("mirror-screen");
-	mirrorScreen?.addEventListener("pointerdown", handlePointerDown);
-	mirrorScreen?.addEventListener("pointermove", handlePointerMove);
-	mirrorScreen?.addEventListener("pointerup", handlePointerUp);
-	mirrorScreen?.addEventListener("pointercancel", handlePointerCancel);
-	mirrorScreen?.addEventListener("pointerleave", () => {
-		// Don't cancel here - pointer capture keeps us receiving events
-	});
+	const mirrorScreenCanvas = document.getElementById("mirror-screen-canvas");
+	for (const el of [mirrorScreen, mirrorScreenCanvas]) {
+		if (!el) continue;
+		el.addEventListener("pointerdown", handlePointerDown);
+		el.addEventListener("pointermove", handlePointerMove);
+		el.addEventListener("pointerup", handlePointerUp);
+		el.addEventListener("pointercancel", handlePointerCancel);
+		el.addEventListener("pointerleave", () => {
+			// Don't cancel here - pointer capture keeps us receiving events
+		});
+	}
 
 	// scrcpy toggle
 	const toggleScrcpy = document.getElementById(

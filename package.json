@@ -8,7 +8,8 @@
     "amos-connect": "./dist-cli/cli.js"
   },
   "scripts": {
-    "release": "bun exec standard-version",
+    "release": "bun run check:version && bun exec standard-version",
+    "check:version": "bun run scripts/check-version-sync.ts",
     "release:minor": "bun exec standard-version --release-as minor",
     "release:major": "bun exec standard-version --release-as major",
     "release:patch": "bun exec standard-version --release-as patch",

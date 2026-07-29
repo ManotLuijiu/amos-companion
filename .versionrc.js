@@ -18,7 +18,9 @@ const tauriUpdater = {
 	readVersion(contents) {
 		try {
 			const json = JSON.parse(contents);
-			return json.package?.version || json.productName?.version;
+			// tauri.conf.json (Tauri v2) uses a TOP-LEVEL "version" key, not
+			// package.version. Support both so the bump never silently no-ops.
+			return json.version || json.package?.version || null;
 		} catch {
 			return null;
 		}
@@ -26,8 +28,8 @@ const tauriUpdater = {
 	writeVersion(contents, version) {
 		try {
 			const json = JSON.parse(contents);
+			if (typeof json.version !== "undefined") json.version = version;
 			if (json.package) json.package.version = version;
-			if (json.productName) json.productName.version = version;
 			const indent = detectIndent(contents).indent || 2;
 			const newline = detectNewline(contents) || "\n";
 			return JSON.stringify(json, null, indent) + newline;
