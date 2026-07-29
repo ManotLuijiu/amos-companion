@@ -22,7 +22,6 @@
 //! Related: scrcpy.rs (native binary mode - separate window)
 //! Related: video_stream.rs (ADB screenrecord - works but slow)
 
-use std::io::Read;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -46,41 +45,6 @@ const DEFAULT_MAX_WIDTH: i32 = 1920;
 struct ScrcpyFramePayload<'a> {
     bytes: &'a [u8],
     key: bool,
-}
-
-/// Read a packet from scrcpy-server.
-/// scrcpy protocol: [4 bytes: big-endian size][N bytes: data]
-fn read_packet(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
-    let mut size_buf = [0u8; 4];
-    stream.read_exact(&mut size_buf)?;
-    let size = u32::from_be_bytes(size_buf) as usize;
-
-    let mut data = vec![0u8; size];
-    stream.read_exact(&mut data)?;
-    Ok(data)
-}
-
-/// Parse device meta from scrcpy-server.
-/// Returns (width, height).
-fn parse_device_meta(meta: &[u8]) -> (u32, u32) {
-    if let Ok(json_str) = std::str::from_utf8(meta) {
-        // Try to parse JSON to get dimensions
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
-            let w = json
-                .get("width")
-                .or(json.get("screenWidth"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1920) as u32;
-            let h = json
-                .get("height")
-                .or(json.get("screenHeight"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1080) as u32;
-            return (w, h);
-        }
-    }
-    // Default dimensions
-    (DEFAULT_MAX_WIDTH as u32, 1080)
 }
 
 /// Path to scrcpy-server JAR
@@ -369,9 +333,16 @@ impl ScrcpyServer {
         self.debug_info += &format!("\nscrcpy-server command: {}", start_cmd);
 
         let child = Command::new(&adb_path)
-            .args(["-s", &self.serial, "shell", "nohup", &start_cmd])
+            .args([
+                "-s",
+                &self.serial,
+                "shell",
+                "nohup",
+                &start_cmd,
+                ">/dev/null",
+                "2>/data/local/tmp/scrcpy-server.err",
+            ])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("Failed to start scrcpy-server: {}", e))?;
 
@@ -380,23 +351,7 @@ impl ScrcpyServer {
         // Wait for server to start (scrcpy-server takes time to initialize)
         thread::sleep(Duration::from_secs(3));
 
-        // Try to connect to verify server is ready
-        let addr = format!("127.0.0.1:{}", port);
-        let server_ready = std::net::TcpStream::connect_timeout(
-            &addr
-                .parse()
-                .unwrap_or_else(|_| "127.0.0.1:8888".parse().unwrap()),
-            std::time::Duration::from_secs(2),
-        )
-        .is_ok();
-
-        if server_ready {
-            info!("scrcpy-server TCP connection successful");
-            self.debug_info += "\nTCP connection to server successful";
-        }
-
         // Informational: check if scrcpy-server process is running on device
-        // (diagnostic only - real liveness is TCP connection in start_with_events)
         let ps_result = Command::new(&adb_path)
             .args(["-s", &self.serial, "shell", "ps", "-A"])
             .output();
@@ -406,11 +361,6 @@ impl ScrcpyServer {
             if stdout.contains("app_process") && stdout.contains("scrcpy") {
                 info!("scrcpy-server process found on device (diagnostic)");
                 self.debug_info += "\nscrcpy-server process found (diagnostic)";
-            } else {
-                info!(
-                    "scrcpy-server process check: not found in ps output (server may have exited)"
-                );
-                self.debug_info += "\nscrcpy-server process not in ps (may be normal)";
             }
         }
 
@@ -453,26 +403,72 @@ impl ScrcpyServer {
         let running_clone = running.clone();
         let app_clone = app.clone();
 
-        // Synchronous handshake with scrcpy-server
-        info!("Connecting to scrcpy-server on port {}", port);
-        let mut stream = TcpStream::connect_timeout(
-            &format!("127.0.0.1:{}", port).parse().unwrap(),
-            std::time::Duration::from_secs(5),
-        )
-        .map_err(|e| format!("Failed to connect to scrcpy-server: {}", e))?;
+        // Retry loop: connect + dummy byte is atomic readiness check
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+        let mut stream: Option<TcpStream> = None;
+        let mut last_err = String::new();
 
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-            .ok();
+        for attempt in 1..=15u32 {
+            if !*running.lock().unwrap() {
+                break;
+            }
+            match TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)) {
+                Ok(mut s) => {
+                    let mut dummy = [0u8; 1];
+                    match std::io::Read::read_exact(&mut s, &mut dummy) {
+                        Ok(()) => {
+                            info!(
+                                "scrcpy handshake ok on attempt {} (dummy byte read)",
+                                attempt
+                            );
+                            stream = Some(s);
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = format!("dummy byte read on attempt {}: {}", attempt, e);
+                            warn!("{}", last_err);
+                            drop(s);
+                            thread::sleep(std::time::Duration::from_millis(300));
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = format!("connect on attempt {}: {}", attempt, e);
+                    warn!("{}", last_err);
+                    thread::sleep(std::time::Duration::from_millis(300));
+                }
+            }
+        }
+
+        let mut stream = match stream {
+            Some(s) => s,
+            None => {
+                // Read stderr for diagnostics
+                if let Ok(out) = Command::new(find_adb())
+                    .args([
+                        "-s",
+                        &self.serial,
+                        "shell",
+                        "cat",
+                        "/data/local/tmp/scrcpy-server.err",
+                    ])
+                    .output()
+                {
+                    let err = String::from_utf8_lossy(&out.stdout);
+                    if !err.is_empty() {
+                        error!("scrcpy-server stderr:\n{}", err);
+                    }
+                }
+                return Err(format!(
+                    "Failed to complete scrcpy handshake after retries: {}",
+                    last_err
+                ));
+            }
+        };
+
         stream.set_nodelay(true).ok();
 
-        // Step 1: Read dummy byte (forward mode handshake)
-        let mut dummy = [0u8; 1];
-        std::io::Read::read_exact(&mut stream, &mut dummy)
-            .map_err(|e| format!("Failed to read dummy byte: {}", e))?;
-        info!("Read dummy byte: {:?}", dummy);
-
-        // Step 2: Read device meta (u16 length + UTF-8 name)
+        // Read device meta (u16 length + UTF-8 name)
         let mut len_buf = [0u8; 2];
         std::io::Read::read_exact(&mut stream, &mut len_buf)
             .map_err(|e| format!("Failed to read meta length: {}", e))?;
@@ -483,14 +479,14 @@ impl ScrcpyServer {
         let device_name = String::from_utf8_lossy(&meta_buf);
         info!("Device name: {}", device_name);
 
-        // Step 3: Read codec id (4 ASCII bytes, e.g. "h264")
+        // Read codec id (4 ASCII bytes, e.g. "h264")
         let mut codec_buf = [0u8; 4];
         std::io::Read::read_exact(&mut stream, &mut codec_buf)
             .map_err(|e| format!("Failed to read codec id: {}", e))?;
         let codec = String::from_utf8_lossy(&codec_buf);
         info!("Codec: {}", codec);
 
-        // Step 4: Read session packet (12 bytes, flag 0x80) for width/height
+        // Read session packet (12 bytes, flag 0x80) for width/height
         let mut session_buf = [0u8; 12];
         std::io::Read::read_exact(&mut stream, &mut session_buf)
             .map_err(|e| format!("Failed to read session packet: {}", e))?;
@@ -499,7 +495,6 @@ impl ScrcpyServer {
         let mut height: u32 = 1080;
 
         if session_buf[0] & 0x80 != 0 {
-            // Session packet
             width = u32::from_be_bytes([
                 session_buf[4],
                 session_buf[5],
@@ -531,12 +526,9 @@ impl ScrcpyServer {
 
         info!("Starting scrcpy media loop ({}x{})", width, height);
 
-        // Spawn thread for ongoing media stream
+        // Spawn thread for ongoing media stream (blocking reads)
         thread::spawn(move || {
             let mut stream = stream;
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_millis(500)))
-                .ok();
 
             let mut pending_config: Option<Vec<u8>> = None;
             let mut frame_count: u64 = 0;
@@ -550,9 +542,6 @@ impl ScrcpyServer {
                 let mut hdr = [0u8; 12];
                 match std::io::Read::read_exact(&mut stream, &mut hdr) {
                     Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        continue;
-                    }
                     Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                         info!("scrcpy server disconnected");
                         break;
