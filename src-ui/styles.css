@@ -837,6 +837,55 @@ body {
 	font-weight: 400;
 }
 
+/* Mirror mode badge */
+.mirror-mode-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 8px;
+	padding: 1px 7px;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.4;
+	border-radius: 999px;
+	background: var(--bg-tertiary, rgba(0, 0, 0, 0.06));
+	color: var(--text-secondary, #666);
+	white-space: nowrap;
+}
+.mirror-mode-badge::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentColor;
+	display: inline-block;
+}
+.mirror-mode-badge.mode-connecting {
+	color: #9aa0a6;
+}
+.mirror-mode-badge.mode-connecting::before {
+	animation: mirror-mode-pulse 1s ease-in-out infinite;
+}
+.mirror-mode-badge.mode-scrcpy {
+	color: var(--accent-green, #2ea043);
+}
+.mirror-mode-badge.mode-adb {
+	color: #d08a1e;
+}
+.mirror-mode-badge.mode-secure,
+.mirror-mode-badge.mode-disconnected {
+	color: #d73a49;
+}
+@keyframes mirror-mode-pulse {
+	0%,
+	100% {
+		opacity: 0.35;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
 .mirror-close {
 	background: transparent;
 	border: none;

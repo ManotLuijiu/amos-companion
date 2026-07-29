@@ -826,7 +826,12 @@ function createMirrorCard(): HTMLElement {
 	editName.id = "btn-edit-device-name";
 	editName.title = "Edit name";
 	editName.textContent = "✎";
-	title.append(titleIcon, deviceName, editName);
+	const modeBadge = document.createElement("span");
+	modeBadge.className = "mirror-mode-badge mode-connecting";
+	modeBadge.id = "mirror-mode-badge";
+	modeBadge.textContent = "connecting";
+	modeBadge.title = "Connecting…";
+	title.append(titleIcon, deviceName, editName, modeBadge);
 	const close = document.createElement("button");
 	close.className = "mirror-close";
 	close.id = "btn-close-mirror";
@@ -2214,6 +2219,7 @@ class ScrcpyVideoStream {
 					if (!this._firstFrameRendered) {
 						this._firstFrameRendered = true;
 						addLog("info", "[SCRCPY] First frame rendered successfully!");
+						setMirrorModeBadge("scrcpy");
 
 						if (this._firstFrameTimeout) {
 							clearTimeout(this._firstFrameTimeout);
@@ -2295,6 +2301,54 @@ class ScrcpyVideoStream {
 	}
 }
 
+type MirrorMode = "connecting" | "scrcpy" | "adb" | "secure" | "disconnected";
+
+const MIRROR_MODE_META: Record<
+	MirrorMode,
+	{ cls: string; label: string; tip: string }
+> = {
+	connecting: {
+		cls: "mode-connecting",
+		label: "connecting",
+		tip: "Starting mirror…",
+	},
+	scrcpy: {
+		cls: "mode-scrcpy",
+		label: "scrcpy",
+		tip: "Live video via scrcpy (high performance)",
+	},
+	adb: {
+		cls: "mode-adb",
+		label: "ADB",
+		tip: "Screenshot polling via ADB (slower; may black out on secure screens)",
+	},
+	secure: {
+		cls: "mode-secure",
+		label: "secure",
+		tip: "Secure screen — content hidden. Enter PIN on the device.",
+	},
+	disconnected: {
+		cls: "mode-disconnected",
+		label: "off",
+		tip: "Mirror stopped",
+	},
+};
+
+function setMirrorModeBadge(mode: MirrorMode): void {
+	const badge = document.getElementById("mirror-mode-badge");
+	const meta = MIRROR_MODE_META[mode];
+	if (badge) {
+		badge.className = `mirror-mode-badge ${meta.cls}`;
+		badge.textContent = meta.label;
+		badge.title = meta.tip;
+	}
+	// Keep the toggle hint in sync: "✓ Active" only when scrcpy is really running.
+	const toggleStatus = document.getElementById("scrcpy-status");
+	if (toggleStatus) {
+		toggleStatus.textContent = mode === "scrcpy" ? "✓ Active" : "✓ Available";
+	}
+}
+
 async function startMirror(device: DeviceInfo): Promise<void> {
 	const mirrorScreen = document.getElementById(
 		"mirror-screen",
@@ -2307,6 +2361,7 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 	const mirrorWifi = document.getElementById("mirror-wifi");
 
 	if (!mirrorScreen) return;
+	setMirrorModeBadge("connecting");
 
 	addLog("info", `Starting mirror for ${device.model || device.serial}...`);
 
@@ -2349,6 +2404,7 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 			"info",
 			`Falling back to screenshot polling for ${device.serial}...`,
 		);
+		setMirrorModeBadge("adb");
 		await refreshMirrorScreen(device.serial);
 
 		screenshotPollingInterval = setInterval(async () => {
@@ -2481,11 +2537,13 @@ async function refreshMirrorScreen(serial: string): Promise<void> {
 					if (consecutiveBlackFrames >= 3 && secureNotice) {
 						addLog("debug", "Screenshot consistently black - secure screen");
 						secureNotice.style.display = "block";
+						setMirrorModeBadge("secure");
 					}
 				} else {
 					// Non-black frame - reset counter and hide notice
 					consecutiveBlackFrames = 0;
 					if (secureNotice) secureNotice.style.display = "none";
+					setMirrorModeBadge("adb");
 				}
 			}
 			mirrorScreen.src = `data:image/png;base64,${base64}`;
@@ -2622,6 +2680,7 @@ async function stopMirrorInternal(): Promise<void> {
 	const secureNotice = document.getElementById("mirror-secure-notice");
 	if (secureNotice) secureNotice.style.display = "none";
 
+	setMirrorModeBadge("disconnected");
 	currentMirroringDevice = null;
 }
 
