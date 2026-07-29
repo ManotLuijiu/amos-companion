@@ -479,6 +479,7 @@ async function handleLogin(event: Event): Promise<void> {
 	try {
 		await invoke("sign_in", { apiUrl, email, password });
 		userInfo = { id: "", email };
+		updateUserBadge();
 
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
@@ -535,10 +536,30 @@ function buildHeader(): HTMLElement {
 	statusBadge.id = "status-badge";
 	statusBadge.textContent = "Loading...";
 
+	// User Badge
+	const userBadge = document.createElement("div");
+	userBadge.className = "header-user";
+	userBadge.id = "header-user";
+	userBadge.textContent = "Not logged in";
+
 	header.appendChild(brand);
 	header.appendChild(statusBadge);
+	header.appendChild(userBadge);
 
 	return header;
+}
+
+function updateUserBadge(): void {
+	const userBadge = document.getElementById("header-user");
+	if (userBadge) {
+		if (userInfo) {
+			userBadge.textContent = userInfo.email;
+			userBadge.className = "header-user logged-in";
+		} else {
+			userBadge.textContent = "Not logged in";
+			userBadge.className = "header-user";
+		}
+	}
 }
 
 function buildMainContent(): HTMLElement {
@@ -2856,6 +2877,7 @@ export async function init(): Promise<void> {
 		const user = await invoke<[string, string] | null>("get_user_info");
 		if (user) {
 			userInfo = { id: user[0], email: user[1] };
+			updateUserBadge();
 			addLog("info", `Logged in as ${userInfo.email}`);
 			const loginSection = document.getElementById("login-section");
 			const mainContent = document.getElementById("main-content");
@@ -2882,6 +2904,7 @@ export async function init(): Promise<void> {
 	// Listen for login success event from OAuth flow
 	await listen<{ user_id: string; email: string }>("login-success", (event) => {
 		userInfo = { id: event.payload.user_id, email: event.payload.email };
+		updateUserBadge();
 		addLog("info", `Signed in successfully as ${userInfo.email}!`);
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");

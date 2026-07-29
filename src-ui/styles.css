@@ -133,6 +133,26 @@ body {
 	border-color: var(--accent-red);
 }
 
+.header-user {
+	padding: 6px 14px;
+	border-radius: 20px;
+	font-size: 12px;
+	font-weight: 500;
+	background: var(--bg-tertiary);
+	border: 1px solid var(--border-color);
+	color: var(--text-muted);
+	max-width: 200px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.header-user.logged-in {
+	background: var(--accent-green-bg);
+	color: var(--accent-green);
+	border-color: var(--accent-green);
+}
+
 /* ─── Main Content ─────────────────────────────────────────────────────────── */
 .app-main {
 	display: flex;
