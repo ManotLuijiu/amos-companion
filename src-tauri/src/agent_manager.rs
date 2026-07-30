@@ -97,11 +97,11 @@ impl AgentManager {
 
         // Use uv run to ensure dependencies (httpx, etc.) are available.
         // uv creates a temporary venv if needed and keeps the process tracked.
-        // Add ~/.local/bin to PATH for uv (installed by user).
+        // Add standard macOS paths for adb and user-specific paths for uv.
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
             .arg(format!(
-                "export PATH=$PATH:$HOME/.local/bin:$HOME/.cargo/bin; uv run --directory '{}' python -m amos_device_agent",
+                "export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH; uv run --directory '{}' python -m amos_device_agent",
                 agent_cwd.display()
             ))
             .env("AMOS_API_URL", api_url)
