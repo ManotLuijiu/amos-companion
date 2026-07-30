@@ -24,14 +24,23 @@ try {
   throw new Error(`Failed to update ${pkgPath}: ${err}`);
 }
 
-// Update Cargo.toml - match only version = "X.Y.Z" at start of line
+// Update Cargo.toml - ONLY the [package] version, NOT dependencies
 const cargoPath = 'src-tauri/Cargo.toml';
 try {
-  let cargo = readFileSync(cargoPath, 'utf8');
-  // Match: version = "X.Y.Z" or version = "X.Y.Z" # comment
-  cargo = cargo.replace(/^version\s*=\s*"[^"]+"(\s*#.*)?$/m, `version = "${version}"`);
-  writeFileSync(cargoPath, cargo);
-  console.log(`✓ Updated ${cargoPath}`);
+  const cargo = readFileSync(cargoPath, 'utf8');
+  
+  // Find [package] section and replace ONLY its version
+  const pkgMatch = cargo.match(/^(\[package\]\nname = "[^"]+"\n)version = "[^"]+"\n([\s\S]*?)(\n\[)/m);
+  if (pkgMatch) {
+    const newCargo = cargo.replace(
+      pkgMatch[0],
+      `${pkgMatch[1]}version = "${version}"\n${pkgMatch[2]}${pkgMatch[3]}`
+    );
+    writeFileSync(cargoPath, newCargo);
+    console.log(`✓ Updated ${cargoPath}`);
+  } else {
+    throw new Error('Could not find [package] section in Cargo.toml');
+  }
 } catch (err) {
   throw new Error(`Failed to update ${cargoPath}: ${err}`);
 }
