@@ -52,8 +52,15 @@ jobs:
         run: |
           which create-dmg || brew install create-dmg
 
+      - name: Cache bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Verify version sync
         run: bun run check:version
@@ -118,8 +125,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Cache bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Verify version sync
         run: bun run check:version
@@ -177,8 +191,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Verify version sync
         run: bun run check:version
