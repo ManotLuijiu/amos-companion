@@ -20,7 +20,11 @@ use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
 use scrcpy_server::{create_scrcpy_server, ScrcpyServerManager};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager,
+};
 use tokio::sync::Mutex;
 use tracing::{error, info};
 use video_stream::VideoStream;
@@ -189,6 +193,21 @@ async fn get_user_info(
 
     match (user_id, user_email) {
         (Some(id), Some(email)) => Ok(Some((id, email))),
+        _ => Ok(None),
+    }
+}
+
+#[tauri::command]
+async fn get_user_info_full(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<(String, String, String)>, String> {
+    let config = state.config_store.lock().await;
+    let user_id = config.get_user_id();
+    let user_email = config.get_user_email();
+    let workspace_id = config.get_workspace_id();
+
+    match (user_id, user_email, workspace_id) {
+        (Some(id), Some(email), Some(ws_id)) => Ok(Some((id, email, ws_id))),
         _ => Ok(None),
     }
 }
@@ -1024,7 +1043,52 @@ pub fn run() {
             stop_ws_scrcpy_server,
             get_ws_scrcpy_status,
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            info!("Setting up system tray...");
+
+            // Create tray menu
+            let show_item = MenuItem::new(app, "Show AMOS Companion", true, None::<&str>)?;
+            let open_web_item = MenuItem::new(app, "Open AMOS Web UI", true, None::<&str>)?;
+            let quit_item = MenuItem::new(app, "Quit", true, None::<&str>)?;
+
+            let menu = Menu::with_items(app, &[&show_item, &open_web_item, &quit_item])?;
+
+            // Build tray icon
+            let _tray = TrayIconBuilder::new()
+                .tooltip("AMOS Companion")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "Show AMOS Companion" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "Open AMOS Web UI" => {
+                            let _ = tauri_plugin_shell::ShellExt::shell(app)
+                                .open("https://app.amos.moo-vpn.online", None);
+                        }
+                        "Quit" => {
+                            info!("Quit requested from tray menu");
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            info!("System tray configured successfully");
             info!("Tauri app setup complete");
             Ok(())
         })

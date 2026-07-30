@@ -242,50 +242,6 @@ function clearLogs(): void {
 	}
 }
 
-// ─── Tray Setup ───────────────────────────────────────────────────────────────
-
-async function setupTray(): Promise<void> {
-	try {
-		const showItem = await MenuItem.new({
-			id: "show",
-			text: "Show AMOS Companion",
-			action: async () => {
-				const win = getCurrentWindow();
-				await win.show();
-				await win.setFocus();
-			},
-		});
-		const openWebItem = await MenuItem.new({
-			id: "open_web",
-			text: "Open AMOS Web UI",
-			action: async () => {
-				await invoke("open_web_ui");
-			},
-		});
-		const quitItem = await MenuItem.new({
-			id: "quit",
-			text: "Quit",
-			action: async () => {
-				const win = getCurrentWindow();
-				await win.close();
-			},
-		});
-
-		const menu = await Menu.new({
-			items: [showItem, openWebItem, quitItem],
-		});
-
-		await TrayIcon.new({
-			id: "main-tray",
-			tooltip: "AMOS Companion",
-			menu,
-			showMenuOnLeftClick: false,
-		});
-	} catch (err) {
-		addLog("error", `Failed to setup tray: ${err}`);
-	}
-}
-
 // ─── Build UI ─────────────────────────────────────────────────────────────────
 
 function build(): HTMLElement {
@@ -2958,10 +2914,6 @@ function setupEventListeners(): void {
 
 export async function init(): Promise<void> {
 	addLog("info", "AMOS Companion initializing...");
-
-	// Set up system tray
-	await setupTray();
-	addLog("info", "System tray configured");
 
 	// Build and mount UI
 	const app = document.getElementById("app")!;
