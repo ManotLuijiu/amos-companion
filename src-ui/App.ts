@@ -94,7 +94,9 @@ let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let scrcpyEnabled = false;
 let scrcpyAvailable = false;
 let scrcpyServerStream: ScrcpyVideoStream | null = null;
-let _deviceAgentInstalled = false;
+let deviceAgentInstalled = false;
+const relayEnabled = false;
+const relayStatus: "disconnected" | "connecting" | "connected" | "error" = "disconnected";
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
@@ -818,7 +820,35 @@ function createSettingsCard(): HTMLElement {
 	openWebBtn.className = "btn btn-secondary btn-full";
 	openWebBtn.id = "btn-open-web";
 	openWebBtn.textContent = "🌐 Open AMOS Web UI";
-	body.append(apiItem, perfItem, openWebBtn);
+
+	// Mirror Relay Section
+	const relayItem = document.createElement("div");
+	relayItem.className = "setting-item";
+	const relayLabel = document.createElement("label");
+	relayLabel.className = "setting-label";
+	relayLabel.textContent = "Browser Mirror (Relay)";
+	const relayStatus = document.createElement("span");
+	relayStatus.className = "setting-hint";
+	relayStatus.id = "relay-status";
+	relayStatus.textContent = "Disconnected";
+	relayLabel.appendChild(relayStatus);
+	const relayToggleContainer = document.createElement("div");
+	relayToggleContainer.className = "toggle-container";
+	const relayToggleInput = document.createElement("input");
+	relayToggleInput.type = "checkbox";
+	relayToggleInput.id = "toggle-relay";
+	relayToggleInput.className = "toggle-input";
+	const relayToggleLabel = document.createElement("label");
+	relayToggleLabel.htmlFor = "toggle-relay";
+	relayToggleLabel.className = "toggle-label";
+	const relayToggleText = document.createElement("span");
+	relayToggleText.className = "toggle-text";
+	relayToggleText.id = "toggle-relay-text";
+	relayToggleText.textContent = "Enable for sharing";
+	relayToggleContainer.append(relayToggleInput, relayToggleLabel, relayToggleText);
+	relayItem.append(relayLabel, relayToggleContainer);
+
+	body.append(apiItem, perfItem, relayItem, openWebBtn);
 	card.appendChild(body);
 
 	return card;
@@ -1132,7 +1162,7 @@ let refreshFrameCount = 0; // Counter for black screen detection
 let consecutiveBlackFrames = 0; // Track sustained black to avoid false positives
 const MAX_SCREENSHOT_ERRORS = 3;
 
-async function refreshScreenshot(): Promise<void> {
+async function _refreshScreenshot(): Promise<void> {
 	if (!selectedDevice) return;
 	const loading = document.getElementById("screen-loading");
 	const screenImg = document.getElementById(
@@ -2878,9 +2908,8 @@ export async function init(): Promise<void> {
 		if (user) {
 			userInfo = { id: user[0], email: user[1] };
 			updateUserBadge();
-			addLog("info", `Logged in as ${userInfo.email}`);
+			addLog("info", `Logged in as ${userInfo.email} (${getCompanionVersionLabel()})`);
 			const loginSection = document.getElementById("login-section");
-			const mainContent = document.getElementById("main-content");
 			if (loginSection) loginSection.style.display = "none";
 		} else {
 			addLog("info", "Please sign in to continue");
@@ -2905,7 +2934,7 @@ export async function init(): Promise<void> {
 	await listen<{ user_id: string; email: string }>("login-success", (event) => {
 		userInfo = { id: event.payload.user_id, email: event.payload.email };
 		updateUserBadge();
-		addLog("info", `Signed in successfully as ${userInfo.email}!`);
+		addLog("info", `Signed in as ${userInfo.email} (${getCompanionVersionLabel()})`);
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
@@ -2943,7 +2972,7 @@ export async function init(): Promise<void> {
 			path: string;
 			os: string;
 		}>("get_device_agent_status");
-		_deviceAgentInstalled = agentStatus.installed;
+		deviceAgentInstalled = agentStatus.installed;
 		addLog(
 			"info",
 			`Device agent ${agentStatus.installed ? "installed" : "not found"} (${agentStatus.os})`,
