@@ -536,7 +536,9 @@ function updateUserBadge(): void {
 
 async function updateUserBadgeFull(): Promise<void> {
 	try {
-		const info = await invoke<[string, string, string] | null>("get_user_info_full");
+		const info = await invoke<[string, string, string] | null>(
+			"get_user_info_full",
+		);
 		const userEmailEl = document.getElementById("header-user-email");
 		const userWorkspaceEl = document.getElementById("header-user-workspace");
 		const userBadgeEl = document.getElementById("header-user");
@@ -1561,8 +1563,8 @@ async function handleSyncDevices(): Promise<void> {
 
 	if (syncBtn) {
 		syncBtn.disabled = false;
-		syncBtn.textContent = "🔄";
 		syncBtn.classList.remove("syncing");
+		syncBtn.style.animation = "none";
 	}
 }
 
