@@ -1,15 +1,19 @@
 mod adb;
 mod agent_manager;
 mod config_store;
+mod dependency_manager;
 mod device_agent_installer;
 mod device_controller;
 mod scrcpy;
 mod scrcpy_server;
 mod video_stream;
 mod workspace_manager;
+mod ws_scrcpy_server;
 
 use agent_manager::AgentManager;
 use config_store::ConfigStore;
+use dependency_manager as deps;
+use deps::DependencyStatus;
 use device_agent_installer as installer;
 use device_controller::{DeviceInfo, DeviceList};
 use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
@@ -21,6 +25,7 @@ use tokio::sync::Mutex;
 use tracing::{error, info};
 use video_stream::VideoStream;
 use workspace_manager as wm;
+use ws_scrcpy_server::{create_ws_scrcpy_server, WsScrcpyServerManager, WsScrcpyStatus};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +79,7 @@ pub struct AppState {
     pub scrcpy_manager: ScrcpyManager,
     pub scrcpy_server: ScrcpyServerManager,
     pub video_stream: Arc<Mutex<Option<VideoStream>>>,
+    pub ws_scrcpy_server: WsScrcpyServerManager,
 }
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
@@ -103,6 +109,49 @@ async fn get_device_agent_status() -> Result<DeviceAgentStatus, String> {
             .to_string(),
         os: installer::get_os_info(),
     })
+}
+
+// ─── Mirror Dependency Management ─────────────────────────────────────────────
+
+#[tauri::command]
+async fn install_mirror_deps() -> Result<String, String> {
+    info!("Installing mirror dependencies...");
+    deps::install_all().await?;
+    Ok("All mirror dependencies installed successfully!".to_string())
+}
+
+#[tauri::command]
+fn get_mirror_deps_status() -> DependencyStatus {
+    DependencyStatus::check()
+}
+
+#[tauri::command]
+async fn start_ws_scrcpy_server(
+    state: tauri::State<'_, AppState>,
+    port: Option<u16>,
+) -> Result<String, String> {
+    info!("Starting ws-scrcpy server...");
+    let mut server = state.ws_scrcpy_server.lock().await;
+    
+    if let Some(p) = port {
+        server.set_port(p);
+    }
+    
+    server.start().await
+}
+
+#[tauri::command]
+async fn stop_ws_scrcpy_server(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    info!("Stopping ws-scrcpy server...");
+    let mut server = state.ws_scrcpy_server.lock().await;
+    server.stop();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_ws_scrcpy_status(state: tauri::State<'_, AppState>) -> Result<WsScrcpyStatus, String> {
+    let server = state.ws_scrcpy_server.lock().await;
+    Ok(server.get_status())
 }
 
 #[tauri::command]
@@ -922,6 +971,7 @@ pub fn run() {
         scrcpy_manager: create_scrcpy_manager(String::new()),
         scrcpy_server: create_scrcpy_server(String::new()),
         video_stream: Arc::new(Mutex::new(None)),
+        ws_scrcpy_server: create_ws_scrcpy_server(),
     };
 
     tauri::Builder::default()
@@ -965,6 +1015,12 @@ pub fn run() {
             start_video_stream,
             stop_video_stream,
             get_stream_info,
+            // Mirror dependency management
+            install_mirror_deps,
+            get_mirror_deps_status,
+            start_ws_scrcpy_server,
+            stop_ws_scrcpy_server,
+            get_ws_scrcpy_status,
         ])
         .setup(|_app| {
             info!("Tauri app setup complete");
