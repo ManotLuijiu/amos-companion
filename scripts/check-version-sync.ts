@@ -31,7 +31,8 @@ function readJsonVersion(file: string): string {
 
 function readCargoVersion(file: string): string {
 	const contents = readFileSync(file, "utf8");
-	const match = contents.match(/^version\s*=\s*"([^"]+)"/m);
+	// Match version line, allowing for trailing comment
+	const match = contents.match(/^version\s*=\s*"([^"]+)"(\s*#.*)?$/m);
 	if (!match) {
 		throw new Error(`No version line in ${file}`);
 	}
