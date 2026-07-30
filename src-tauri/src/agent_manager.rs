@@ -95,11 +95,14 @@ impl AgentManager {
 
         info!("Device-agent working dir: {:?}", agent_cwd);
 
-        // Spawn Python directly so tokio's Child tracks the actual agent process.
-        // We avoid `uv run` because it launches a wrapper that exits while the
-        // actual Python agent continues - we need to track the real agent.
-        let mut cmd = Command::new("python3");
-        cmd.arg("-m")
+        // Use uv run to ensure dependencies (httpx, etc.) are available.
+        // uv creates a temporary venv if needed and keeps the process tracked.
+        let mut cmd = Command::new("uv");
+        cmd.arg("run")
+            .arg("--directory")
+            .arg(&agent_cwd)
+            .arg("python")
+            .arg("-m")
             .arg("amos_device_agent")
             .env("AMOS_API_URL", api_url)
             .env("AMOS_AGENT_ID", agent_id)
