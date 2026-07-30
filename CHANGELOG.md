@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.5.0](https://github.com/ManotLuijiu/auto-affiliate-agents/compare/v1.2.4...v1.5.0) (2026-07-30)
+
+
+### Features
+
+* add mirror mode badge (scrcpy/ADB indicator) ([ded2dc4](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/ded2dc438a2227fbed05588139b6c4e018f0c42a))
+* add Mirror Relay client support ([0623a09](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/0623a092bb482721371b20e2de7c8eda5b56bfbe))
+* add Mirror Relay toggle to Settings ([d977516](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/d97751612bd0a04033b7dbacfba8d0475b8b4197))
+* add user badge in header showing logged-in email ([7b7ab5a](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/7b7ab5ae48c6f8642ff1d9fe47eb85134faffe99))
+* bundle scrcpy-server and improve path resolution ([2ff9e5d](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/2ff9e5dcec0f59cf22466d8e896715b3bc4d114f))
+* enable real video streaming with screenshot fallback ([297ad28](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/297ad280a9a3361c788ebc04cabebaf1eb4c42f7))
+* improve scrcpy UX, secure-screen notice, device icon, friendly names ([2573234](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/25732344b36ab43f0e2f7093886d0af17d62383f))
+* **mirror:** add scrcpy-server streaming to #mirror-screen div ([f828603](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/f82860333a55525803e61e60ee692eada21b2baf))
+* use Google brand PNG logo and update video stream handling ([09f37e6](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/09f37e6e55859ce16390bebb42fa9e575f8d4148))
+* use standard-version bumpFiles for multi-file version sync ([9bfeadb](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/9bfeadb77b4a845c1400a4d691bf3e773defdbe5))
+
+
+### Bug Fixes
+
+* add rename_all = snake_case to device_swipe for Tauri arg mapping ([ede1a56](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/ede1a56450f254db634641b6c15a540e413164c7))
+* add versionrc to sync all version files ([fcae43e](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/fcae43e76c1c64eecbe97f55c9194efa1c5050c8))
+* apply user changes ([111a884](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/111a88445ec6acbef5c780810e71ef4b092cc5a8))
+* implement scrcpy 4.x wire protocol correctly ([515437a](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/515437adb66c6508258340b721abff486b07df10))
+* improve scrcpy-server process detection ([8ec2b53](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/8ec2b53d6cca1d0a633162a22944eb646cbbcab5))
+* **mirror:** fix two critical root causes of live mirror timeout ([455eada](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/455eadac00d76cc900350aace01949a95c295f3b))
+* **mirror:** toggle scrcpy now uses scrcpy-server mode ([5fb9811](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/5fb9811cbe156bdc607db07be2a05dbcdd4ca3ff))
+* **mirror:** video stream false success state - NAL parsing + first-frame timeout ([dccd3e2](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/dccd3e289fb712708274ea1e0de9777eeb755d13))
+* remove nohup, fix device-meta parser for scrcpy 4.x protocol ([1975b9f](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/1975b9f592e4ce8303263913731d007d33f22ee8))
+* remove TCP probe, add retry loop, capture stderr for scrcpy diagnostics ([8537725](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/8537725b02796cd681f7323b7f14d06c82bb735d))
+* replace WebSocket with Tauri events for video streaming ([3f32c8c](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/3f32c8c71bac14e02a87220845107c110291193f))
+* **scrcpy-server:** improve logging and error handling ([1b49e0b](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/1b49e0bda6e63a4ffa5c6069c93cd96768f33c4e))
+* **scrcpy:** emit debug logs after frontend listener is set up ([7f91774](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/7f91774ec66f76243dd9e24f30fbf10f48ad0684))
+* **scrcpy:** remove unsupported --quiet option for older scrcpy versions ([2cd58a1](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/2cd58a14dcb501742cc9f3ab676c2d1a306147dc))
+* **scrcpy:** use correct port forwarding to abstract socket ([51b1b6f](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/51b1b6f05433188588f6178243eb63d6bfa04d66))
+* skip postbump hook in standard-version ([956ed9d](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/956ed9da0f6b661004063a097ad426f7f011ee6c))
+* sync companion release version files ([ccddccd](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/ccddccd3e78fc91a0611feb984ebcf2beed93130))
+* sync version files to 1.2.8 + add release script ([4617e18](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/4617e18a6f8e02b4b223a34ca918e0fcfbe03ba4))
+* sync versions to 1.3.0 ([2939bd8](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/2939bd827ec6a5b118c527472ac7b3b71202b06c))
+* update scrcpy_server and device_controller imports ([01acd9d](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/01acd9d8b3d4bde9f8f422f1a401144285fdcd46))
+* use .cjs extension for version updater ([d36b420](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/d36b4201e62e7181a324b61f7e8ade0fdd088a23))
+* use snake_case for duration_ms in device_swipe ([5f3bb39](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/5f3bb39f1fe0a00f27b6d6035fbe64c151121aae))
+* Windows path bug in check-version-sync.ts ([cc9ed5f](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/cc9ed5ff748e76e67d387a6ec90520a91ced4270))
+
 ## [1.4.0](https://github.com/ManotLuijiu/auto-affiliate-agents/compare/v1.2.4...v1.4.0) (2026-07-30)
 
 
