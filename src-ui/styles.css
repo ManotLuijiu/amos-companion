@@ -577,7 +577,7 @@ body {
 /* ─── Sync Button ─────────────────────────────────────────────────────────── */
 .btn-sync {
 	cursor: pointer;
-	background: transparent;
+	background: transparent !important;
 	border: 1px solid var(--border-color);
 	border-radius: 4px;
 	padding: 4px 8px;
@@ -601,8 +601,12 @@ body {
 }
 
 @keyframes spin {
-	from { transform: rotate(0deg); }
-	to { transform: rotate(360deg); }
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 .btn-icon {
