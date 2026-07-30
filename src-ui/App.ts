@@ -21,9 +21,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { TrayIcon } from "@tauri-apps/api/tray";
-import { Menu, MenuItem } from "@tauri-apps/api/menu";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 declare const __APP_VERSION__: string;
 
@@ -438,7 +435,7 @@ async function handleLogin(event: Event): Promise<void> {
 	try {
 		await invoke("sign_in", { apiUrl, email, password });
 		userInfo = { id: "", email };
-		updateUserBadge();
+		updateUserBadgeFull();
 
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
@@ -534,6 +531,26 @@ function updateUserBadge(): void {
 			userWorkspace.textContent = "";
 			userBadge.className = "header-user";
 		}
+	}
+}
+
+async function updateUserBadgeFull(): Promise<void> {
+	try {
+		const info = await invoke<[string, string, string] | null>("get_user_info_full");
+		const userEmailEl = document.getElementById("header-user-email");
+		const userWorkspaceEl = document.getElementById("header-user-workspace");
+		const userBadgeEl = document.getElementById("header-user");
+
+		if (info && userEmailEl && userWorkspaceEl && userBadgeEl) {
+			const [userId, email, workspaceId] = info;
+			const shortUserId = userId.substring(0, 8);
+			const shortWsId = workspaceId.substring(0, 8);
+			userEmailEl.textContent = `${email} (${shortUserId})`;
+			userWorkspaceEl.textContent = `default workspace ${shortWsId}...`;
+			userBadgeEl.className = "header-user logged-in";
+		}
+	} catch (err) {
+		console.error("Failed to get user info:", err);
 	}
 }
 
@@ -692,12 +709,28 @@ function createDeviceCard(): HTMLElement {
 	count.id = "device-count";
 	count.textContent = "0";
 
-	// Sync button
+	// Sync button with SVG icon
 	const syncBtn = document.createElement("button");
 	syncBtn.className = "btn-small btn-sync";
 	syncBtn.id = "btn-sync-devices";
-	syncBtn.textContent = "🔄";
 	syncBtn.title = "Sync Devices";
+	syncBtn.textContent = "";
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("width", "14");
+	svg.setAttribute("height", "14");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	const path1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+	path1.setAttribute("d", "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8");
+	const path2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+	path2.setAttribute("d", "M21 3v5h-5");
+	svg.appendChild(path1);
+	svg.appendChild(path2);
+	syncBtn.appendChild(svg);
 	syncBtn.addEventListener("click", handleSyncDevices);
 
 	header.append(title, count, syncBtn);
@@ -2925,7 +2958,7 @@ export async function init(): Promise<void> {
 		const user = await invoke<[string, string] | null>("get_user_info");
 		if (user) {
 			userInfo = { id: user[0], email: user[1] };
-			updateUserBadge();
+			updateUserBadgeFull();
 			addLog(
 				"info",
 				`Logged in as ${userInfo.email} (${getCompanionVersionLabel()})`,
@@ -2954,7 +2987,7 @@ export async function init(): Promise<void> {
 	// Listen for login success event from OAuth flow
 	await listen<{ user_id: string; email: string }>("login-success", (event) => {
 		userInfo = { id: event.payload.user_id, email: event.payload.email };
-		updateUserBadge();
+		updateUserBadgeFull();
 		addLog(
 			"info",
 			`Signed in as ${userInfo.email} (${getCompanionVersionLabel()})`,
