@@ -24,14 +24,12 @@ try {
   throw new Error(`Failed to update ${pkgPath}: ${err}`);
 }
 
-// Update Cargo.toml
+// Update Cargo.toml - match only version = "X.Y.Z" at start of line
 const cargoPath = 'src-tauri/Cargo.toml';
 try {
   let cargo = readFileSync(cargoPath, 'utf8');
-  cargo = cargo.replace(
-    /^version = "[^"]+"/m,
-    `version = "${version}"                                                              # Synced from package.json`
-  );
+  // Match: version = "X.Y.Z" or version = "X.Y.Z" # comment
+  cargo = cargo.replace(/^version\s*=\s*"[^"]+"(\s*#.*)?$/m, `version = "${version}"`);
   writeFileSync(cargoPath, cargo);
   console.log(`✓ Updated ${cargoPath}`);
 } catch (err) {
