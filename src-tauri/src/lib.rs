@@ -528,6 +528,7 @@ async fn start_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Resul
                         Some(api_key),
                         Some(api_secret),
                         Some(ws_id),
+                        Some(user_id.clone()),
                     )
                     .await
                 {
@@ -565,6 +566,7 @@ async fn start_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Resul
                 device_key,
                 device_secret,
                 Some(ws_id),
+                Some(user_id.clone()),
             )
             .await
         {

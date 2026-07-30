@@ -59,6 +59,7 @@ impl AgentManager {
         device_key: Option<String>,
         device_secret: Option<String>,
         workspace_id: Option<String>,
+        user_id: Option<String>,
     ) -> Result<(), AgentError> {
         info!("start() called, checking if already running...");
         if self.is_running() {
@@ -115,6 +116,9 @@ impl AgentManager {
         }
         if let Some(ref ws_id) = workspace_id {
             cmd.env("AMOS_WORKSPACE_ID", ws_id);
+        }
+        if let Some(ref uid) = user_id {
+            cmd.env("AMOS_USER_ID", uid);
         }
 
         info!("Attempting to spawn device-agent via python3...");
