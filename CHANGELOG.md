@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.6.0](https://github.com/ManotLuijiu/auto-affiliate-agents/compare/v1.5.0...v1.6.0) (2026-07-30)
+
+
+### Features
+
+* add smart-bump script for automatic version release ([6aed38e](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/6aed38efa4fe1917a59c01c717f99573c173b710))
+* add Sync Devices button to sync all workspace devices ([d117e06](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/d117e0669e4aa999ec6194319d933626dd53f5bc))
+
+
+### Bug Fixes
+
+* restore Cargo.toml (was corrupted by release script) ([9143fa6](https://github.com/ManotLuijiu/auto-affiliate-agents/commit/9143fa66972393f950cb494ab78b8338a8c7a8a3))
+
 ## [1.5.0](https://github.com/ManotLuijiu/auto-affiliate-agents/compare/v1.2.4...v1.5.0) (2026-07-30)
 
 
