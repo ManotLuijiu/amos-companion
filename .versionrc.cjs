@@ -10,6 +10,7 @@ module.exports = {
 			updater: require("./scripts/cargo-version-updater.cjs"),
 		},
 		{ filename: "src-tauri/tauri.conf.json", type: "json" },
+		{ filename: "CHANGELOG.md", type: "markdown" },
 	],
 	packageLock: "package-lock.json",
 };

@@ -96,7 +96,8 @@ let scrcpyAvailable = false;
 let scrcpyServerStream: ScrcpyVideoStream | null = null;
 let deviceAgentInstalled = false;
 const relayEnabled = false;
-const relayStatus: "disconnected" | "connecting" | "connected" | "error" = "disconnected";
+const relayStatus: "disconnected" | "connecting" | "connected" | "error" =
+	"disconnected";
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
@@ -542,7 +543,20 @@ function buildHeader(): HTMLElement {
 	const userBadge = document.createElement("div");
 	userBadge.className = "header-user";
 	userBadge.id = "header-user";
-	userBadge.textContent = "Not logged in";
+	userBadge.style.display = "flex";
+	userBadge.style.flexDirection = "column";
+	userBadge.style.alignItems = "flex-end";
+	userBadge.style.lineHeight = "1.2";
+	const userEmail = document.createElement("span");
+	userEmail.id = "header-user-email";
+	userEmail.textContent = "Not logged in";
+	const userWorkspace = document.createElement("span");
+	userWorkspace.id = "header-user-workspace";
+	userWorkspace.style.fontSize = "10px";
+	userWorkspace.style.opacity = "0.7";
+	userWorkspace.textContent = "";
+	userBadge.appendChild(userEmail);
+	userBadge.appendChild(userWorkspace);
 
 	header.appendChild(brand);
 	header.appendChild(statusBadge);
@@ -552,13 +566,16 @@ function buildHeader(): HTMLElement {
 }
 
 function updateUserBadge(): void {
+	const userEmail = document.getElementById("header-user-email");
+	const userWorkspace = document.getElementById("header-user-workspace");
 	const userBadge = document.getElementById("header-user");
-	if (userBadge) {
+	if (userEmail && userWorkspace && userBadge) {
 		if (userInfo) {
-			userBadge.textContent = userInfo.email;
+			userEmail.textContent = userInfo.email;
 			userBadge.className = "header-user logged-in";
 		} else {
-			userBadge.textContent = "Not logged in";
+			userEmail.textContent = "Not logged in";
+			userWorkspace.textContent = "";
 			userBadge.className = "header-user";
 		}
 	}
@@ -854,7 +871,11 @@ function createSettingsCard(): HTMLElement {
 	relayToggleText.className = "toggle-text";
 	relayToggleText.id = "toggle-relay-text";
 	relayToggleText.textContent = "Enable for sharing";
-	relayToggleContainer.append(relayToggleInput, relayToggleLabel, relayToggleText);
+	relayToggleContainer.append(
+		relayToggleInput,
+		relayToggleLabel,
+		relayToggleText,
+	);
 	relayItem.append(relayLabel, relayToggleContainer);
 
 	body.append(apiItem, perfItem, relayItem, openWebBtn);
@@ -1523,7 +1544,9 @@ async function handleSaveConfig(): Promise<void> {
 // ─── Device Sync ─────────────────────────────────────────────────────────────
 
 async function handleSyncDevices(): Promise<void> {
-	const syncBtn = document.getElementById("btn-sync-devices") as HTMLButtonElement;
+	const syncBtn = document.getElementById(
+		"btn-sync-devices",
+	) as HTMLButtonElement;
 	if (syncBtn) {
 		syncBtn.disabled = true;
 		syncBtn.textContent = "⏳";
@@ -2949,7 +2972,10 @@ export async function init(): Promise<void> {
 		if (user) {
 			userInfo = { id: user[0], email: user[1] };
 			updateUserBadge();
-			addLog("info", `Logged in as ${userInfo.email} (${getCompanionVersionLabel()})`);
+			addLog(
+				"info",
+				`Logged in as ${userInfo.email} (${getCompanionVersionLabel()})`,
+			);
 			const loginSection = document.getElementById("login-section");
 			if (loginSection) loginSection.style.display = "none";
 		} else {
@@ -2975,7 +3001,10 @@ export async function init(): Promise<void> {
 	await listen<{ user_id: string; email: string }>("login-success", (event) => {
 		userInfo = { id: event.payload.user_id, email: event.payload.email };
 		updateUserBadge();
-		addLog("info", `Signed in as ${userInfo.email} (${getCompanionVersionLabel()})`);
+		addLog(
+			"info",
+			`Signed in as ${userInfo.email} (${getCompanionVersionLabel()})`,
+		);
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
