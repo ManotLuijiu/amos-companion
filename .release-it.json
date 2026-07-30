@@ -11,12 +11,7 @@
   },
   "hooks": {
     "before:bump": "bun run check:version",
-    "after:bump": [
-      "echo 'Bumped to ${version}'"
-    ]
-  },
-  "plugins": {
-    "./scripts/release-it-plugin.js": {}
+    "after:bump": "node scripts/release-it-plugin.js ${version}"
   },
   "increment": false,
   "version": false
