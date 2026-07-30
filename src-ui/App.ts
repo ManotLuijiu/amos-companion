@@ -1550,6 +1550,7 @@ async function handleSyncDevices(): Promise<void> {
 	if (syncBtn) {
 		syncBtn.disabled = true;
 		syncBtn.textContent = "⏳";
+		syncBtn.classList.add("syncing");
 	}
 
 	addLog("info", "Syncing devices...");
@@ -1572,6 +1573,7 @@ async function handleSyncDevices(): Promise<void> {
 	if (syncBtn) {
 		syncBtn.disabled = false;
 		syncBtn.textContent = "🔄";
+		syncBtn.classList.remove("syncing");
 	}
 }
 
