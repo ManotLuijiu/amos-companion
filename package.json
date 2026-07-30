@@ -1,6 +1,6 @@
 {
   "name": "amos-companion",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "description": "AMOS Companion App — Connect Android devices to AMOS SaaS with one click",
   "private": true,
   "type": "module",
@@ -9,6 +9,10 @@
   },
   "scripts": {
     "check:version": "bun run scripts/check-version-sync.ts",
+    "release": "release-it",
+    "release:patch": "release-it patch",
+    "release:minor": "release-it minor",
+    "release:major": "release-it major",
     "build": "bun run build:cli && bun run build:gui",
     "build:cli": "mkdir -p dist-cli && esbuild src/cli.ts --bundle --platform=node --outfile=dist-cli/cli.js --format=esm --target=node18 --minify",
     "build:gui": "vite build --config vite.gui.config.ts",
@@ -38,6 +42,7 @@
     "@types/inquirer": "^9.0.3",
     "@types/node": "^20.0.0",
     "esbuild": "^0.21.0",
+    "release-it": "^21.0.0",
     "typescript": "^5.4.0",
     "vite": "^6.4.3"
   },

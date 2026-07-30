@@ -1,0 +1,23 @@
+{
+  "$schema": "https://github.com/release-it/release-it/raw/17/schema.json",
+  "github": {
+    "release": true,
+    "autoGenerate": true
+  },
+  "git": {
+    "commitMessage": "release: v${version}",
+    "tagName": "companion/v${version}",
+    "tagAnnotation": "Release ${version}"
+  },
+  "hooks": {
+    "before:bump": "bun run check:version",
+    "after:bump": [
+      "echo 'Bumped to ${version}'"
+    ]
+  },
+  "plugins": {
+    "./scripts/release-it-plugin.js": {}
+  },
+  "increment": false,
+  "version": false
+}

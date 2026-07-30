@@ -1,104 +1,61 @@
 # Release Guide
 
-## Version Files
+## Quick Release
 
-This project has 3 version files that must be kept in sync:
+Use `release-it` to bump version + create Git tag + GitHub Release:
+
+```bash
+bun run release:patch   # 1.6.5 → 1.6.6
+bun run release:minor   # 1.6.5 → 1.7.0
+bun run release:major   # 1.6.5 → 2.0.0
+```
+
+This automatically:
+
+1. Updates all 3 version files
+2. Creates Git commit
+3. Creates Git tag (`companion/vX.Y.Z`)
+4. Creates GitHub Release
+
+## Version Files
 
 | File | Format |
 | ------ | -------- |
-| `package.json` | `"version": "1.6.4"` |
-| `src-tauri/Cargo.toml` | `version = "1.6.4"` |
-| `src-tauri/tauri.conf.json` | `"version": "1.6.4"` |
+| `package.json` | `"version": "X.Y.Z"` |
+| `src-tauri/Cargo.toml` | `version = "X.Y.Z"` |
+| `src-tauri/tauri.conf.json` | `"version": "X.Y.Z"` |
 
-## Release Steps
+All synced automatically by `release-it`.
 
-### 1. Update All Versions
+## Manual Version Bump
 
-Edit all 3 files to the new version:
-
-```bash
-# Edit package.json
-sed -i 's/"version": "X.Y.Z"/"version": "1.6.5"/' package.json
-
-# Edit Cargo.toml
-sed -i 's/version = "X.Y.Z"/version = "1.6.5"/' src-tauri/Cargo.toml
-
-# Edit tauri.conf.json
-sed -i 's/"version": "X.Y.Z"/"version": "1.6.5"/' src-tauri/tauri.conf.json
-```
-
-Or manually edit these lines:
-
-```diff
-# package.json
-- "version": "1.6.4",
-+ "version": "1.6.5",
-
-# src-tauri/Cargo.toml
-- version = "1.6.4"
-+ version = "1.6.5"
-
-# src-tauri/tauri.conf.json
-- "version": "1.6.4",
-+ "version": "1.6.5",
-```
-
-### 2. Verify Versions Match
+If release-it fails, manually update all 3 files:
 
 ```bash
-bun run check:version
+# Edit these files to same version:
+# package.json, src-tauri/Cargo.toml, src-tauri/tauri.conf.json
+
+bun run check:version  # Verify sync
 ```
-
-Should output:
-
-```
-package.json    : 1.6.5
-tauri.conf.json : 1.6.5
-Cargo.toml      : 1.6.5
-
-✅ All version sources in sync: 1.6.5
-```
-
-### 3. Commit
-
-```bash
-git add -A
-git commit -m "release: 1.6.5"
-```
-
-### 4. Tag & Push
-
-```bash
-git tag companion/v1.6.5
-git push
-git push --tags
-```
-
-GitHub Actions will auto-build on the tag.
-
-## Version Number Guidelines
-
-| Type | Example | When |
-| ------ | --------- | ------ |
-| **Patch** | 1.6.4 → 1.6.5 | Bug fixes, small improvements |
-| **Minor** | 1.6.5 → 1.7.0 | New features, backward compatible |
-| **Major** | 1.6.5 → 2.0.0 | Breaking changes |
 
 ## Troubleshooting
 
 ### CI Fails: "No version line in Cargo.toml"
 
-- Check that Cargo.toml has: `version = "X.Y.Z"` (no trailing comment)
-- The version line must be exactly: `version = "X.Y.Z"`
+- Check Cargo.toml has: `version = "X.Y.Z"` (no trailing comment on same line)
+- The regex expects: `^version = "[^"]+"$`
 
-### CI Fails: Version mismatch
-
-- All 3 files must have exactly the same version number
-- Run `bun run check:version` to verify
-
-### Forgot to tag?
+### Forgot to push?
 
 ```bash
-git tag companion/v1.6.5 HEAD
+git push
 git push --tags
 ```
+
+## Version Number Guidelines
+
+| Type | Example | When |
+| ------ | --------- | ------ |
+| **Patch** | 1.6.5 → 1.6.6 | Bug fixes |
+| **Minor** | 1.6.6 → 1.7.0 | New features |
+| **Major** | 1.6.6 → 2.0.0 | Breaking changes |
