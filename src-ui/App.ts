@@ -718,7 +718,16 @@ function createDeviceCard(): HTMLElement {
 	count.className = "badge badge-info";
 	count.id = "device-count";
 	count.textContent = "0";
-	header.append(title, count);
+
+	// Sync button
+	const syncBtn = document.createElement("button");
+	syncBtn.className = "btn-small btn-sync";
+	syncBtn.id = "btn-sync-devices";
+	syncBtn.textContent = "🔄";
+	syncBtn.title = "Sync Devices";
+	syncBtn.addEventListener("click", handleSyncDevices);
+
+	header.append(title, count, syncBtn);
 	card.appendChild(header);
 
 	const body = document.createElement("div");
@@ -1508,6 +1517,38 @@ async function handleSaveConfig(): Promise<void> {
 		} catch (err) {
 			addLog("error", `Failed to save config: ${err}`);
 		}
+	}
+}
+
+// ─── Device Sync ─────────────────────────────────────────────────────────────
+
+async function handleSyncDevices(): Promise<void> {
+	const syncBtn = document.getElementById("btn-sync-devices") as HTMLButtonElement;
+	if (syncBtn) {
+		syncBtn.disabled = true;
+		syncBtn.textContent = "⏳";
+	}
+
+	addLog("info", "Syncing devices...");
+
+	try {
+		// Refresh status to trigger device-agent heartbeat
+		const status = await invoke<AgentStatus>("get_status");
+		state = status;
+		display = computeDisplay();
+		refreshUI();
+
+		// Get device list
+		const deviceList = await invoke<DeviceList>("get_devices");
+		refreshDeviceList(deviceList.devices);
+		addLog("info", `Found ${deviceList.devices.length} device(s)`);
+	} catch (err) {
+		addLog("error", `Sync failed: ${err}`);
+	}
+
+	if (syncBtn) {
+		syncBtn.disabled = false;
+		syncBtn.textContent = "🔄";
 	}
 }
 
