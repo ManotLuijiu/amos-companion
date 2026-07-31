@@ -94,6 +94,12 @@ impl AgentManager {
             warn!("Agent already running!");
             return Err(AgentError::AlreadyRunning);
         }
+        
+        // Validate api_url is not empty
+        if api_url.trim().is_empty() {
+            error!("API URL is empty - sign in first");
+            return Err(AgentError::SpawnFailed("API URL not configured — sign in first".to_string()));
+        }
 
         self.error_message = None;
         self.agent_started = false;
@@ -121,6 +127,10 @@ impl AgentManager {
         // Get working directory from installer
         let agent_cwd = device_agent_installer::get_working_dir();
 
+        // Find adb binary and pass as env var
+        let adb_path = find_adb();
+        info!("Found adb at: {}", adb_path);
+
         info!("Device-agent working dir: {:?}", agent_cwd);
 
         // Use uv run to ensure dependencies (httpx, etc.) are available.
@@ -138,6 +148,9 @@ impl AgentManager {
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
 
+        // Pass adb path to agent
+        cmd.env("AMOS_ADB_PATH", &adb_path);
+        
         // Add optional device-agent auth credentials
         if let Some(key) = &device_key {
             cmd.env("AMOS_API_KEY", key);
