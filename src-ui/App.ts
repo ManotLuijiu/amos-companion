@@ -577,13 +577,7 @@ function buildHeader(): HTMLElement {
 	const userEmail = document.createElement("span");
 	userEmail.id = "header-user-email";
 	userEmail.textContent = "Not logged in";
-	const userWorkspace = document.createElement("span");
-	userWorkspace.id = "header-user-workspace";
-	userWorkspace.style.fontSize = "10px";
-	userWorkspace.style.opacity = "0.7";
-	userWorkspace.textContent = "";
 	userBadge.appendChild(userEmail);
-	userBadge.appendChild(userWorkspace);
 
 	header.appendChild(brand);
 	header.appendChild(statusBadge);
@@ -594,15 +588,13 @@ function buildHeader(): HTMLElement {
 
 function updateUserBadge(): void {
 	const userEmail = document.getElementById("header-user-email");
-	const userWorkspace = document.getElementById("header-user-workspace");
 	const userBadge = document.getElementById("header-user");
-	if (userEmail && userWorkspace && userBadge) {
+	if (userEmail && userBadge) {
 		if (userInfo) {
 			userEmail.textContent = userInfo.email;
 			userBadge.className = "header-user logged-in";
 		} else {
 			userEmail.textContent = "Not logged in";
-			userWorkspace.textContent = "";
 			userBadge.className = "header-user";
 		}
 	}
@@ -614,15 +606,11 @@ async function updateUserBadgeFull(): Promise<void> {
 			"get_user_info_full",
 		);
 		const userEmailEl = document.getElementById("header-user-email");
-		const userWorkspaceEl = document.getElementById("header-user-workspace");
 		const userBadgeEl = document.getElementById("header-user");
 
-		if (info && userEmailEl && userWorkspaceEl && userBadgeEl) {
+		if (info && userEmailEl && userBadgeEl) {
 			const [userId, email, workspaceId] = info;
-			const shortUserId = userId.substring(0, 8);
-			const shortWsId = workspaceId.substring(0, 8);
-			userEmailEl.textContent = `${email} (${shortUserId})`;
-			userWorkspaceEl.textContent = `default workspace ${shortWsId}...`;
+			userEmailEl.textContent = email;
 			userBadgeEl.className = "header-user logged-in";
 
 			// Store full info for User Info panel
