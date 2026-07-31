@@ -352,9 +352,8 @@ function buildLoginSection(): HTMLElement {
 	// site (companion/src-ui/public/google-sign-in.png). Per Google's brand
 	// guidelines we do not modify the asset. The wordmark is displayed in
 	// its intended proportions and the clickable area triggers OAuth.
-	const googleBtn = document.createElement("button");
-	googleBtn.type = "button";
-	googleBtn.className = "btn btn-google";
+	const googleBtn = document.createElement("div");
+	googleBtn.className = "google-wrapper";
 	const googleLogo = document.createElement("img");
 	googleLogo.src = "google-sign-in.png";
 	googleLogo.alt = "Google";
@@ -436,11 +435,11 @@ async function handleGoogleLogin(): Promise<void> {
 	) as HTMLInputElement;
 	const apiUrl = apiUrlInput?.value || "https://amos-api.moo-vpn.online";
 	const errorDiv = document.getElementById("login-error") as HTMLDivElement;
-	const googleBtn = document.querySelector(".btn-google") as HTMLButtonElement;
+	const googleBtn = document.querySelector(".btn-google") as HTMLElement;
 
 	try {
 		if (googleBtn) {
-			googleBtn.disabled = true;
+			googleBtn.style.pointerEvents = "none";
 			// Clear and rebuild with logo + loading text (safe - no user input)
 			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
 			const logo = document.createElement("img");
