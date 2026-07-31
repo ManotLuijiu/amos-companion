@@ -478,14 +478,38 @@ async fn sign_in_oauth(
         Ok(Ok((user_id, email))) => {
             info!("OAuth successful: user_id={}, email={}", user_id, email);
 
-            // Save user info to config
-            let mut config = state.config_store.lock().await;
-            config.set_api_url(api_url);
-            config.set_user_id(Some(user_id.clone()));
-            config.set_user_email(Some(email.clone()));
-            config
-                .save()
-                .map_err(|e| format!("Failed to save config: {}", e))?;
+            // Get or create default workspace
+            let api_url_clone = api_url.clone();
+            let user_id_clone = user_id.clone();
+
+            // Save user info to config first
+            {
+                let mut config = state.config_store.lock().await;
+                config.set_api_url(api_url.clone());
+                config.set_user_id(Some(user_id.clone()));
+                config.set_user_email(Some(email.clone()));
+                // Clear stale workspace - will be set below
+                config.set_workspace_id(None);
+                config
+                    .save()
+                    .map_err(|e| format!("Failed to save config: {}", e))?;
+            }
+
+            // Fetch workspace from backend
+            match wm::ensure_workspace_exists(&api_url_clone, &user_id_clone).await {
+                Ok(ws_id) => {
+                    let mut config = state.config_store.lock().await;
+                    config.set_workspace_id(Some(ws_id.clone()));
+                    config
+                        .save()
+                        .map_err(|e| format!("Failed to save workspace: {}", e))?;
+                    info!("Workspace set: {}", ws_id);
+                }
+                Err(e) => {
+                    info!("Workspace will be created on first agent start: {}", e);
+                    // Continue anyway - workspace will be created on first agent start
+                }
+            }
 
             // Emit login success event to frontend
             app.emit(
@@ -1096,6 +1120,8 @@ pub fn run() {
             get_user_info,
             get_user_info_full,
             get_devices,
+            get_registered_devices,
+            update_device_name,
             get_device_info,
             capture_screenshot,
             start_scrcpy,
