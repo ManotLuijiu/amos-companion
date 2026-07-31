@@ -206,15 +206,19 @@ function startDeviceNameEdit(): void {
 				const registeredDevices = await invoke<RegisteredDevice[]>(
 					"get_registered_devices",
 				);
+				addLog("debug", `Found ${registeredDevices.length} devices from API`);
 				const device = registeredDevices.find(
 					(d) => d.adb_serial === currentMirroringDevice,
 				);
 				if (device) {
+					addLog("info", `Syncing device ${device.id} name to '${newName}'`);
 					await invoke("update_device_name", {
 						deviceId: device.id,
 						name: newName,
 					});
 					addLog("info", `Device name synced to backend`);
+				} else {
+					addLog("warn", `Device ${currentMirroringDevice} not found in registered devices`);
 				}
 			} catch (err) {
 				addLog("warn", `Failed to sync device name to backend: ${err}`);
