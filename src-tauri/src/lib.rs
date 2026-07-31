@@ -488,14 +488,12 @@ async fn sign_in_oauth(
                 config.set_api_url(api_url.clone());
                 config.set_user_id(Some(user_id.clone()));
                 config.set_user_email(Some(email.clone()));
-                // Clear stale workspace - will be set below
-                config.set_workspace_id(None);
                 config
                     .save()
                     .map_err(|e| format!("Failed to save config: {}", e))?;
             }
 
-            // Fetch workspace from backend
+            // Fetch workspace from backend FIRST
             match wm::ensure_workspace_exists(&api_url_clone, &user_id_clone).await {
                 Ok(ws_id) => {
                     let mut config = state.config_store.lock().await;
@@ -511,7 +509,7 @@ async fn sign_in_oauth(
                 }
             }
 
-            // Emit login success event to frontend
+            // Emit login success event to frontend AFTER config is complete
             app.emit(
                 "login-success",
                 serde_json::json!({
