@@ -43,10 +43,38 @@ impl AgentManager {
     }
 
     /// Returns true if the agent is in a running state.
-    /// The truth source is: we successfully started and haven't stopped or errored.
-    /// Child process handle may not track the real agent if it daemonizes.
-    pub fn is_running(&self) -> bool {
-        // Running = started successfully and no error
+    /// Uses try_wait() to verify the child process is actually alive.
+    pub fn is_running(&mut self) -> bool {
+        if !self.agent_started {
+            return false;
+        }
+
+        // Check if the child process has exited
+        if let Some(ref mut child) = self.process {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // Process has exited
+                    let exit_code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "unknown".to_string());
+                    self.error_message = Some(format!("Agent process exited with code: {}", exit_code));
+                    self.agent_started = false;
+                    error!("Agent exited: {}", self.error_message.as_ref().unwrap());
+                    return false;
+                }
+                Ok(None) => {
+                    // Process still running, no error
+                    return self.error_message.is_none();
+                }
+                Err(e) => {
+                    // try_wait failed, assume dead
+                    self.error_message = Some(format!("Failed to check agent status: {}", e));
+                    self.agent_started = false;
+                    error!("Agent check failed: {}", e);
+                    return false;
+                }
+            }
+        }
+
+        // No process handle means not running
         self.agent_started && self.error_message.is_none()
     }
 
@@ -181,11 +209,11 @@ impl AgentManager {
     }
 
     /// Return the current agent status.
-    pub fn get_status(&self) -> AgentStatus {
+    pub fn get_status(&mut self) -> AgentStatus {
         // Query connected ADB devices
         let connected_devices = Self::get_connected_devices();
 
-        // Check if agent is running
+        // Check if agent is running (truthful with try_wait)
         let running = self.is_running();
 
         AgentStatus {

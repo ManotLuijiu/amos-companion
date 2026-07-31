@@ -90,8 +90,37 @@ pub struct AppState {
 
 #[tauri::command]
 async fn get_status(state: tauri::State<'_, AppState>) -> Result<AgentStatus, String> {
-    let agent = state.agent_manager.lock().await;
+    let mut agent = state.agent_manager.lock().await;
     Ok(agent.get_status())
+}
+
+#[tauri::command]
+async fn get_agent_logs(state: tauri::State<'_, AppState>) -> Result<(String, bool), String> {
+    let mut agent = state.agent_manager.lock().await;
+
+    // Get the log directory path
+    let log_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("amos-companion")
+        .join("logs");
+    let stderr_file = log_dir.join("agent-stderr.log");
+
+    let is_alive = agent.is_running();
+
+    // Read last 50 lines of stderr
+    let tail = if stderr_file.exists() {
+        match std::fs::read_to_string(&stderr_file) {
+            Ok(content) => {
+                let lines: Vec<&str> = content.lines().rev().take(50).collect();
+                lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+            }
+            Err(e) => format!("Failed to read log: {}", e),
+        }
+    } else {
+        "No agent log file found".to_string()
+    };
+
+    Ok((tail, is_alive))
 }
 
 #[tauri::command]
@@ -1000,6 +1029,7 @@ pub fn run() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             get_status,
+            get_agent_logs,
             start_agent,
             stop_agent,
             save_config,
@@ -1011,6 +1041,7 @@ pub fn run() {
             sign_in_oauth,
             sign_in_manual,
             get_user_info,
+            get_user_info_full,
             get_devices,
             get_device_info,
             capture_screenshot,

@@ -550,9 +550,14 @@ async function updateUserBadgeFull(): Promise<void> {
 			userEmailEl.textContent = `${email} (${shortUserId})`;
 			userWorkspaceEl.textContent = `default workspace ${shortWsId}...`;
 			userBadgeEl.className = "header-user logged-in";
+		} else {
+			// Fallback to reliable updateUserBadge() if get_user_info_full returns null
+			updateUserBadge();
 		}
 	} catch (err) {
 		console.error("Failed to get user info:", err);
+		// Fallback to reliable updateUserBadge() on error
+		updateUserBadge();
 	}
 }
 
@@ -1557,6 +1562,31 @@ async function handleSyncDevices(): Promise<void> {
 		const deviceList = await invoke<DeviceList>("get_devices");
 		refreshDeviceList(deviceList.devices);
 		addLog("info", `Found ${deviceList.devices.length} device(s)`);
+
+		// When no devices are registered to the account, surface the device-agent's
+		// recent stderr so the user can see WHY registration isn't happening. The
+		// agent commonly dies silently (0 POST /devices to the API), so this is
+		// the only way to diagnose it from the UI.
+		if (deviceList.devices.length === 0) {
+			addLog(
+				"warn",
+				"No devices registered to your account — the device-agent may not be running or may be failing to register.",
+			);
+			try {
+				const [tail, agentRunning] =
+					await invoke<[string, boolean]>("get_agent_logs");
+				addLog(
+					agentRunning ? "debug" : "error",
+					`device-agent running=${agentRunning}${
+						tail.trim()
+							? `\n[device-agent log]\n${tail.trim()}`
+							: " (no log output)"
+					}`,
+				);
+			} catch (logErr) {
+				addLog("debug", `Could not read device-agent logs: ${logErr}`);
+			}
+		}
 	} catch (err) {
 		addLog("error", `Sync failed: ${err}`);
 	}

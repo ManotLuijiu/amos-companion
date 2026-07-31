@@ -8,7 +8,10 @@
 // must bump in lockstep (via .versionrc.js bumpFiles). If they ever drift
 // (manual edit, a broken .versionrc, a re-added shadowing config), this guard
 // turns it into a build failure.
+//
+// In CI (CI=true), also compares against the latest companion/v* git tag.
 import { readFileSync } from "fs";
+import { execSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -39,6 +42,21 @@ function readCargoVersion(file: string): string {
 	return match[1];
 }
 
+function getGitTagVersion(): string | null {
+	try {
+		// Get the latest companion/v* tag
+		const tag = execSync(
+			"git describe --tags --abbrev=0 --match 'companion/v*'",
+			{ cwd: rootDir, encoding: "utf8" },
+		).trim();
+		// Strip "companion/v" prefix
+		return tag.replace(/^companion\/v/, "");
+	} catch {
+		// No tag found, skip this check
+		return null;
+	}
+}
+
 const pkgVersion = readJsonVersion(resolve(rootDir, "package.json"));
 const tauriVersion = readJsonVersion(
 	resolve(rootDir, "src-tauri", "tauri.conf.json"),
@@ -63,6 +81,23 @@ if (versions.size !== 1) {
 		`   (standard-version bumps all three together via .versionrc.js).`,
 	);
 	process.exit(1);
+}
+
+// CI-only check: compare against git tag
+if (process.env.CI === "true") {
+	const tagVersion = getGitTagVersion();
+	if (tagVersion) {
+		console.log(`Git tag (latest) : ${tagVersion}`);
+		if (pkgVersion !== tagVersion) {
+			console.error(
+				`\n❌ Version files (${pkgVersion}) do not match latest git tag (${tagVersion}).`,
+			);
+			console.error(
+				`   Bump the version files to match the tag, or create a new tag.`,
+			);
+			process.exit(1);
+		}
+	}
 }
 
 console.log(`\n✅ All version sources in sync: ${pkgVersion}`);
