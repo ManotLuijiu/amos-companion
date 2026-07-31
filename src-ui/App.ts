@@ -736,7 +736,8 @@ function hideUserInfoPanel(): void {
 	if (overlay) overlay.style.display = "none";
 }
 
-async function handleLogout(): Promise<void> {
+async function handleLogout(e: Event): Promise<void> {
+	e.stopPropagation(); // Prevent modal overlay click handler
 	console.log("[DEBUG] Logout button clicked");
 	if (!confirm("Are you sure you want to logout?")) {
 		console.log("[DEBUG] User cancelled logout");
