@@ -568,7 +568,9 @@ function buildHeader(): HTMLElement {
 	userBadge.title = "Click to view user info";
 	userBadge.addEventListener("click", () => {
 		const badgeClass = userBadge.className;
+		console.log("[DEBUG] User badge clicked, class:", badgeClass);
 		if (badgeClass.includes("logged-in")) {
+			console.log("[DEBUG] Showing user info panel");
 			showUserInfoPanel();
 		}
 	});
