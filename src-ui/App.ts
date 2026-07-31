@@ -736,18 +736,15 @@ function hideUserInfoPanel(): void {
 	if (overlay) overlay.style.display = "none";
 }
 
-async function handleLogout(e: Event): Promise<void> {
-	e.stopPropagation(); // Prevent modal overlay click handler
+async function handleLogout(): Promise<void> {
 	console.log("[DEBUG] Logout button clicked");
-	if (!confirm("Are you sure you want to logout?")) {
-		console.log("[DEBUG] User cancelled logout");
-		return;
-	}
-
+	
+	// Hide the User Info panel first, then logout
+	hideUserInfoPanel();
+	
 	try {
 		console.log("[DEBUG] Stopping agent and signing out...");
 		addLog("info", "Logging out...");
-		hideUserInfoPanel();
 
 		// Stop agent and sign out via backend
 		await invoke("stop_agent");
