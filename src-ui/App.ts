@@ -738,10 +738,10 @@ function hideUserInfoPanel(): void {
 
 async function handleLogout(): Promise<void> {
 	console.log("[DEBUG] Logout button clicked");
-	
+
 	// Hide the User Info panel first, then logout
 	hideUserInfoPanel();
-	
+
 	try {
 		console.log("[DEBUG] Stopping agent and signing out...");
 		addLog("info", "Logging out...");
