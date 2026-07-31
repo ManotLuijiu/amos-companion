@@ -737,9 +737,14 @@ function hideUserInfoPanel(): void {
 }
 
 async function handleLogout(): Promise<void> {
-	if (!confirm("Are you sure you want to logout?")) return;
+	console.log("[DEBUG] Logout button clicked");
+	if (!confirm("Are you sure you want to logout?")) {
+		console.log("[DEBUG] User cancelled logout");
+		return;
+	}
 
 	try {
+		console.log("[DEBUG] Stopping agent and signing out...");
 		addLog("info", "Logging out...");
 		hideUserInfoPanel();
 
@@ -757,8 +762,10 @@ async function handleLogout(): Promise<void> {
 		if (loginSection) loginSection.style.display = "flex";
 		if (mainContent) mainContent.style.display = "none";
 
+		console.log("[DEBUG] Logout successful");
 		addLog("info", "Logged out successfully");
 	} catch (err) {
+		console.error("[DEBUG] Logout failed:", err);
 		addLog("error", `Logout failed: ${err}`);
 	}
 }
