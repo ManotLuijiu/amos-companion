@@ -50,6 +50,12 @@ interface DeviceList {
 	devices: DeviceInfo[];
 }
 
+interface RegisteredDevice {
+	id: string;
+	name: string;
+	adb_serial: string;
+}
+
 /**
  * Result returned from backend `start_scrcpy` Tauri command.
  * Mirrors the Rust struct `ScrcpyLaunchResult`.
@@ -99,6 +105,44 @@ let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
 const maxLogs = 500;
+
+// ─── Lucide Icon Paths ───────────────────────────────────────────────────
+const LUCIDE = {
+	Smartphone:
+		"M12 18h-6a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2zm-8-2h8v-8h-8v8z",
+	Search:
+		"M21 21l-5.197-5.197m0 0A11 11 0 1 0 5.196 5.196a11 11 0 0 0-5.196 5.196z",
+	Settings:
+		"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+	Eye: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7zm10-7a10 10 0 0 1 10 10s-3 7-10 7-10-7-10-7 10-7 10-7z",
+	EyeOff:
+		"M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a21.84 21.84 0 0 0 5.65 5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a21.84 21.84 0 0 1-1.53 3.06M1 1l22 22",
+	Monitor:
+		"M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z",
+	Phone:
+		"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z",
+	Square: "M3 3h18v18H3z",
+};
+
+function createLucideIcon(
+	name: keyof typeof LUCIDE,
+	size: number = 16,
+	color: string = "currentColor",
+): SVGSVGElement {
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.setAttribute("width", size.toString());
+	svg.setAttribute("height", size.toString());
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "none");
+	svg.setAttribute("stroke", color);
+	svg.setAttribute("stroke-width", "2");
+	svg.setAttribute("stroke-linecap", "round");
+	svg.setAttribute("stroke-linejoin", "round");
+	const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+	path.setAttribute("d", LUCIDE[name]);
+	svg.appendChild(path);
+	return svg;
+}
 
 // ─── Device Friendly Names ───────────────────────────────────────────────────
 
@@ -151,11 +195,30 @@ function startDeviceNameEdit(): void {
 	input.focus();
 	input.select();
 
-	const finishEdit = () => {
+	const finishEdit = async () => {
 		const newName = input.value.trim();
 		if (newName && newName !== currentName) {
 			setDeviceFriendlyName(currentMirroringDevice!, newName);
 			addLog("debug", `Device renamed to: ${newName}`);
+
+			// Sync to backend
+			try {
+				const registeredDevices = await invoke<RegisteredDevice[]>(
+					"get_registered_devices",
+				);
+				const device = registeredDevices.find(
+					(d) => d.adb_serial === currentMirroringDevice,
+				);
+				if (device) {
+					await invoke("update_device_name", {
+						deviceId: device.id,
+						name: newName,
+					});
+					addLog("info", `Device name synced to backend`);
+				}
+			} catch (err) {
+				addLog("warn", `Failed to sync device name to backend: ${err}`);
+			}
 		}
 		// Restore display - use friendly name or serial
 		deviceNameSpan.textContent =
@@ -249,6 +312,7 @@ function build(): HTMLElement {
 	root.append(buildLoginSection());
 	root.append(buildMainContent());
 	root.append(buildFooter());
+	root.append(createUserInfoPanel());
 
 	return root;
 }
@@ -492,7 +556,7 @@ function buildHeader(): HTMLElement {
 	statusBadge.id = "status-badge";
 	statusBadge.textContent = "Loading...";
 
-	// User Badge
+	// User Badge (clickable to show user info)
 	const userBadge = document.createElement("div");
 	userBadge.className = "header-user";
 	userBadge.id = "header-user";
@@ -500,6 +564,14 @@ function buildHeader(): HTMLElement {
 	userBadge.style.flexDirection = "column";
 	userBadge.style.alignItems = "flex-end";
 	userBadge.style.lineHeight = "1.2";
+	userBadge.style.cursor = "pointer";
+	userBadge.title = "Click to view user info";
+	userBadge.addEventListener("click", () => {
+		const badgeClass = userBadge.className;
+		if (badgeClass.includes("logged-in")) {
+			showUserInfoPanel();
+		}
+	});
 	const userEmail = document.createElement("span");
 	userEmail.id = "header-user-email";
 	userEmail.textContent = "Not logged in";
@@ -550,6 +622,11 @@ async function updateUserBadgeFull(): Promise<void> {
 			userEmailEl.textContent = `${email} (${shortUserId})`;
 			userWorkspaceEl.textContent = `default workspace ${shortWsId}...`;
 			userBadgeEl.className = "header-user logged-in";
+
+			// Store full info for User Info panel
+			(userBadgeEl as any).dataset.userId = userId;
+			(userBadgeEl as any).dataset.email = email;
+			(userBadgeEl as any).dataset.workspaceId = workspaceId;
 		} else {
 			// Fallback to reliable updateUserBadge() if get_user_info_full returns null
 			updateUserBadge();
@@ -558,6 +635,141 @@ async function updateUserBadgeFull(): Promise<void> {
 		console.error("Failed to get user info:", err);
 		// Fallback to reliable updateUserBadge() on error
 		updateUserBadge();
+	}
+}
+
+function createUserInfoPanel(): HTMLElement {
+	const overlay = document.createElement("div");
+	overlay.id = "user-info-overlay";
+	overlay.className = "modal-overlay";
+	overlay.style.display = "none";
+	overlay.addEventListener("click", (e) => {
+		if (e.target === overlay) hideUserInfoPanel();
+	});
+
+	const panel = document.createElement("div");
+	panel.className = "modal-panel";
+
+	// Header
+	const header = document.createElement("div");
+	header.className = "modal-header";
+	const title = document.createElement("h2");
+	title.textContent = "User Info";
+	const closeBtn = document.createElement("button");
+	closeBtn.className = "btn-close";
+	closeBtn.textContent = "×";
+	closeBtn.addEventListener("click", hideUserInfoPanel);
+	header.appendChild(title);
+	header.appendChild(closeBtn);
+	panel.appendChild(header);
+
+	// Body
+	const body = document.createElement("div");
+	body.className = "modal-body";
+
+	// User ID row
+	const userIdRow = document.createElement("div");
+	userIdRow.className = "info-row";
+	const userIdLabel = document.createElement("span");
+	userIdLabel.className = "info-label";
+	userIdLabel.textContent = "User ID:";
+	const userIdValue = document.createElement("span");
+	userIdValue.className = "info-value";
+	userIdValue.id = "user-info-id";
+	userIdValue.textContent = "-";
+	userIdRow.appendChild(userIdLabel);
+	userIdRow.appendChild(userIdValue);
+	body.appendChild(userIdRow);
+
+	// Email row
+	const emailRow = document.createElement("div");
+	emailRow.className = "info-row";
+	const emailLabel = document.createElement("span");
+	emailLabel.className = "info-label";
+	emailLabel.textContent = "Email:";
+	const emailValue = document.createElement("span");
+	emailValue.className = "info-value";
+	emailValue.id = "user-info-email";
+	emailValue.textContent = "-";
+	emailRow.appendChild(emailLabel);
+	emailRow.appendChild(emailValue);
+	body.appendChild(emailRow);
+
+	// Workspace ID row
+	const wsRow = document.createElement("div");
+	wsRow.className = "info-row";
+	const wsLabel = document.createElement("span");
+	wsLabel.className = "info-label";
+	wsLabel.textContent = "Workspace ID:";
+	const wsValue = document.createElement("span");
+	wsValue.className = "info-value";
+	wsValue.id = "user-info-workspace";
+	wsValue.textContent = "-";
+	wsRow.appendChild(wsLabel);
+	wsRow.appendChild(wsValue);
+	body.appendChild(wsRow);
+
+	// Logout button
+	const logoutBtn = document.createElement("button");
+	logoutBtn.className = "btn btn-danger";
+	logoutBtn.style.marginTop = "16px";
+	logoutBtn.style.width = "100%";
+	logoutBtn.textContent = "Logout";
+	logoutBtn.addEventListener("click", handleLogout);
+	body.appendChild(logoutBtn);
+
+	panel.appendChild(body);
+	overlay.appendChild(panel);
+	return overlay;
+}
+
+function showUserInfoPanel(): void {
+	const overlay = document.getElementById("user-info-overlay");
+	if (!overlay) return;
+
+	const userBadge = document.getElementById("header-user");
+	if (userBadge) {
+		const userId = (userBadge as any).dataset.userId || "-";
+		const email = (userBadge as any).dataset.email || "-";
+		const workspaceId = (userBadge as any).dataset.workspaceId || "-";
+
+		document.getElementById("user-info-id")!.textContent = userId;
+		document.getElementById("user-info-email")!.textContent = email;
+		document.getElementById("user-info-workspace")!.textContent = workspaceId;
+	}
+
+	overlay.style.display = "flex";
+}
+
+function hideUserInfoPanel(): void {
+	const overlay = document.getElementById("user-info-overlay");
+	if (overlay) overlay.style.display = "none";
+}
+
+async function handleLogout(): Promise<void> {
+	if (!confirm("Are you sure you want to logout?")) return;
+
+	try {
+		addLog("info", "Logging out...");
+		hideUserInfoPanel();
+
+		// Stop agent and sign out via backend
+		await invoke("stop_agent");
+		await invoke("sign_out");
+
+		// Clear local state
+		userInfo = null;
+		updateUserBadge();
+
+		// Show login section
+		const loginSection = document.getElementById("login-section");
+		const mainContent = document.getElementById("main-content");
+		if (loginSection) loginSection.style.display = "flex";
+		if (mainContent) mainContent.style.display = "none";
+
+		addLog("info", "Logged out successfully");
+	} catch (err) {
+		addLog("error", `Logout failed: ${err}`);
 	}
 }
 
@@ -709,7 +921,7 @@ function createDeviceCard(): HTMLElement {
 	title.className = "card-title";
 	const icon = document.createElement("span");
 	icon.className = "card-icon";
-	icon.textContent = "📱";
+	icon.appendChild(createLucideIcon("Smartphone"));
 	title.append(icon, "Devices");
 	const count = document.createElement("span");
 	count.className = "badge badge-info";
@@ -727,7 +939,7 @@ function createDeviceCard(): HTMLElement {
 	svg.setAttribute("height", "14");
 	svg.setAttribute("viewBox", "0 0 24 24");
 	svg.setAttribute("fill", "none");
-	svg.setAttribute("stroke", "currentColor");
+	svg.setAttribute("stroke", "white");
 	svg.setAttribute("stroke-width", "2");
 	svg.setAttribute("stroke-linecap", "round");
 	svg.setAttribute("stroke-linejoin", "round");
@@ -753,7 +965,7 @@ function createDeviceCard(): HTMLElement {
 	input.type = "text";
 	input.id = "device-search";
 	input.className = "setting-input";
-	input.placeholder = "🔍 Search devices...";
+	input.placeholder = "Search devices...";
 	input.style.width = "100%";
 	searchContainer.appendChild(input);
 	const listContainer = document.createElement("div");
@@ -767,7 +979,7 @@ function createDeviceCard(): HTMLElement {
 	empty.id = "device-empty";
 	const emptyIcon = document.createElement("span");
 	emptyIcon.className = "empty-icon";
-	emptyIcon.textContent = "📲";
+	emptyIcon.appendChild(createLucideIcon("Phone", 24));
 	const emptyText = document.createElement("span");
 	emptyText.textContent = "No devices connected";
 	empty.append(emptyIcon, emptyText);
@@ -792,7 +1004,7 @@ function createSettingsCard(): HTMLElement {
 	title.className = "card-title";
 	const icon = document.createElement("span");
 	icon.className = "card-icon";
-	icon.textContent = "⚙️";
+	icon.appendChild(createLucideIcon("Settings"));
 	title.append(icon, "Settings");
 	const collapseIcon = document.createElement("span");
 	collapseIcon.className = "collapse-icon";
@@ -1802,7 +2014,8 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 			button.className = `btn btn-small ${isMirroring ? "btn-primary" : "btn-secondary"} btn-mirror`;
 			button.title = isMirroring ? "Stop mirroring" : "Start mirroring";
 			button.dataset.device = device.serial;
-			button.textContent = isMirroring ? "■" : "👁️";
+			button.textContent = "";
+			button.appendChild(createLucideIcon(isMirroring ? "Square" : "Eye", 16));
 			actions.appendChild(button);
 			li.append(icon, info, actions);
 			// Device click - select device

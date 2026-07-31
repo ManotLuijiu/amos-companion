@@ -221,3 +221,80 @@ pub fn get_hostname() -> String {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown-host".to_string())
 }
+
+/// Registered device info from the backend API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisteredDevice {
+    pub id: String,
+    pub name: String,
+    pub adb_serial: String,
+}
+
+/// Get registered devices for the workspace (with device_id, name, serial)
+pub async fn get_registered_devices(
+    api_url: &str,
+    user_id: &str,
+) -> Result<Vec<RegisteredDevice>, String> {
+    info!("Getting registered devices from {}", api_url);
+
+    let url = format!("{}/devices", api_url.trim_end_matches('/'));
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&url)
+        .header("X-User-ID", user_id)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get devices: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        warn!("Failed to get devices: {} - {}", status, body);
+        return Err(format!("Failed to get devices: {}", status));
+    }
+
+    let devices: Vec<RegisteredDevice> = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse devices response: {}", e))?;
+
+    info!("Got {} registered devices", devices.len());
+    Ok(devices)
+}
+
+/// Update device name in the backend
+pub async fn update_device_name(
+    api_url: &str,
+    user_id: &str,
+    device_id: &str,
+    name: &str,
+) -> Result<(), String> {
+    info!("Updating device {} name to '{}'", device_id, name);
+
+    let url = format!("{}/device/{}", api_url.trim_end_matches('/'), device_id);
+
+    #[derive(Serialize)]
+    struct UpdateRequest<'a> {
+        name: &'a str,
+    }
+
+    let client = reqwest::Client::new();
+    let response = client
+        .patch(&url)
+        .header("X-User-ID", user_id)
+        .json(&UpdateRequest { name })
+        .send()
+        .await
+        .map_err(|e| format!("Failed to update device: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        error!("Failed to update device: {} - {}", status, body);
+        return Err(format!("Failed to update device: {}", status));
+    }
+
+    info!("Device {} name updated to '{}'", device_id, name);
+    Ok(())
+}

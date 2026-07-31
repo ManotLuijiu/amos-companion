@@ -16,6 +16,7 @@ use dependency_manager as deps;
 use deps::DependencyStatus;
 use device_agent_installer as installer;
 use device_controller::{DeviceInfo, DeviceList};
+use workspace_manager::RegisteredDevice;
 use scrcpy::{create_scrcpy_manager, is_scrcpy_available, ScrcpyManager};
 use scrcpy_server::{create_scrcpy_server, ScrcpyServerManager};
 use serde::{Deserialize, Serialize};
@@ -259,6 +260,25 @@ async fn sign_in_manual(
         .map_err(|e| format!("Failed to save config: {}", e))?;
 
     info!("Manual sign-in successful");
+    Ok(())
+}
+
+#[tauri::command]
+async fn sign_out(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    info!("Signing out...");
+
+    // Clear user credentials from config
+    let mut config = state.config_store.lock().await;
+    config.set_user_id(None);
+    config.set_user_email(None);
+    config.set_workspace_id(None);
+    config.set_device_agent_key(None);
+    config.set_device_agent_secret(None);
+    config
+        .save()
+        .map_err(|e| format!("Failed to save config: {}", e))?;
+
+    info!("Sign-out successful");
     Ok(())
 }
 
@@ -674,6 +694,38 @@ async fn get_devices() -> Result<DeviceList, String> {
 }
 
 #[tauri::command]
+async fn get_registered_devices(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RegisteredDevice>, String> {
+    let config = state.config_store.lock().await;
+    let user_id = config.get_user_id().ok_or("Not logged in")?;
+    let api_url = config.get_api_url();
+    if api_url.is_empty() {
+        return Err("API URL not configured".to_string());
+    }
+    drop(config);
+
+    workspace_manager::get_registered_devices(&api_url, &user_id).await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+async fn update_device_name(
+    device_id: String,
+    name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let config = state.config_store.lock().await;
+    let user_id = config.get_user_id().ok_or("Not logged in")?;
+    let api_url = config.get_api_url();
+    if api_url.is_empty() {
+        return Err("API URL not configured".to_string());
+    }
+    drop(config);
+
+    workspace_manager::update_device_name(&api_url, &user_id, &device_id, &name).await
+}
+
+#[tauri::command]
 async fn get_device_info(serial: String) -> Result<DeviceInfo, String> {
     device_controller::get_device_info(&serial)
 }
@@ -1040,6 +1092,7 @@ pub fn run() {
             sign_in,
             sign_in_oauth,
             sign_in_manual,
+            sign_out,
             get_user_info,
             get_user_info_full,
             get_devices,
