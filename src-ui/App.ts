@@ -349,14 +349,14 @@ function buildLoginSection(): HTMLElement {
 
 	// Google OAuth button
 	// Uses the official Google wordmark downloaded from Google's brand
-	// site (companion/src-ui/public/google-logo.png). Per Google's brand
+	// site (companion/src-ui/public/google-g-logo.png). Per Google's brand
 	// guidelines we do not modify the asset. The wordmark is displayed in
 	// its intended proportions and the clickable area triggers OAuth.
 	const googleBtn = document.createElement("button");
 	googleBtn.type = "button";
 	googleBtn.className = "btn btn-google";
 	const googleLogo = document.createElement("img");
-	googleLogo.src = "google-logo.png";
+	googleLogo.src = "google-g-logo.png";
 	googleLogo.alt = "Google";
 	googleLogo.className = "google-logo";
 	googleLogo.setAttribute("loading", "lazy");
@@ -444,7 +444,7 @@ async function handleGoogleLogin(): Promise<void> {
 			// Clear and rebuild with logo + loading text (safe - no user input)
 			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
 			const logo = document.createElement("img");
-			logo.src = "google-logo.png";
+			logo.src = "google-g-logo.png";
 			logo.alt = "Google";
 			logo.className = "google-logo";
 			const text = document.createElement("span");
@@ -478,7 +478,7 @@ async function handleGoogleLogin(): Promise<void> {
 			googleBtn.disabled = false;
 			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
 			const logo = document.createElement("img");
-			logo.src = "google-logo.png";
+			logo.src = "google-g-logo.png";
 			logo.alt = "Google";
 			logo.className = "google-logo";
 			googleBtn.appendChild(logo);
