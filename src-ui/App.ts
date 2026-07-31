@@ -441,7 +441,16 @@ async function handleGoogleLogin(): Promise<void> {
 	try {
 		if (googleBtn) {
 			googleBtn.disabled = true;
-			googleBtn.textContent = "Opening browser...";
+			// Clear and rebuild with logo + loading text (safe - no user input)
+			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
+			const logo = document.createElement("img");
+			logo.src = "google-logo.png";
+			logo.alt = "Google";
+			logo.className = "google-logo";
+			const text = document.createElement("span");
+			text.textContent = "Opening browser...";
+			text.style.marginLeft = "8px";
+			googleBtn.append(logo, text);
 		}
 
 		addLog("info", "Starting Google OAuth login...");
@@ -464,9 +473,15 @@ async function handleGoogleLogin(): Promise<void> {
 			errorDiv.textContent = errorMsg;
 			errorDiv.style.display = "block";
 		}
+		// Reset button to show logo only
 		if (googleBtn) {
 			googleBtn.disabled = false;
-			googleBtn.textContent = "Sign in with Google";
+			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
+			const logo = document.createElement("img");
+			logo.src = "google-logo.png";
+			logo.alt = "Google";
+			logo.className = "google-logo";
+			googleBtn.appendChild(logo);
 		}
 	}
 }
@@ -754,10 +769,18 @@ async function handleLogout(): Promise<void> {
 		userInfo = null;
 		updateUserBadge();
 
-		// Show login section
-		const loginSection = document.getElementById("login-section");
+		// Rebuild login section fresh
+		const oldLoginSection = document.getElementById("login-section");
+		if (oldLoginSection) oldLoginSection.remove();
+
+		const root = document.querySelector(".app-container");
+		if (root) {
+			const newLoginSection = buildLoginSection();
+			newLoginSection.style.display = "flex";
+			root.insertBefore(newLoginSection, root.querySelector("#main-content"));
+		}
+
 		const mainContent = document.getElementById("main-content");
-		if (loginSection) loginSection.style.display = "flex";
 		if (mainContent) mainContent.style.display = "none";
 
 		console.log("[DEBUG] Logout successful");
