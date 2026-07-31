@@ -543,13 +543,16 @@ async fn start_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Resul
         "Please sign in first using sign_in()".to_string()
     })?;
 
-    // Auto-install device-agent if not present
-    if !installer::is_installed() {
-        info!("Device agent not found, installing...");
-        drop(config); // Release lock for git clone
-        installer::install_or_update()?;
-        config = state.config_store.lock().await;
+    // Auto-update device-agent to ensure latest code
+    info!("Checking device-agent for updates...");
+    drop(config); // Release lock for git operations
+    if let Err(e) = installer::install_or_update() {
+        error!("Device-agent update failed: {}", e);
+        // Continue anyway - existing installation may still work
+    } else {
+        info!("Device-agent updated successfully");
     }
+    config = state.config_store.lock().await;
 
     let mut agent = state.agent_manager.lock().await;
 
