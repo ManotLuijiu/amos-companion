@@ -272,7 +272,7 @@ pub async fn update_device_name(
 ) -> Result<(), String> {
     info!("Updating device {} name to '{}'", device_id, name);
 
-    let url = format!("{}/device/{}", api_url.trim_end_matches('/'), device_id);
+    let url = format!("{}/devices/{}", api_url.trim_end_matches('/'), device_id);
 
     #[derive(Serialize)]
     struct UpdateRequest<'a> {

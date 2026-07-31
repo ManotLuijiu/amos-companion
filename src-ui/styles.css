@@ -1284,7 +1284,7 @@ body {
 	padding: 0;
 	border: none;
 	border-radius: var(--radius-md);
-	background: #131314;
+	background: transparent;
 	cursor: pointer;
 	transition: opacity 0.2s;
 }
