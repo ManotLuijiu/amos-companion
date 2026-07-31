@@ -218,7 +218,10 @@ function startDeviceNameEdit(): void {
 					});
 					addLog("info", `Device name synced to backend`);
 				} else {
-					addLog("warn", `Device ${currentMirroringDevice} not found in registered devices`);
+					addLog(
+						"warn",
+						`Device ${currentMirroringDevice} not found in registered devices`,
+					);
 				}
 			} catch (err) {
 				addLog("warn", `Failed to sync device name to backend: ${err}`);
