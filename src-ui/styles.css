@@ -1280,35 +1280,28 @@ body {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 0.75rem;
 	width: 100%;
-	padding: unset !important;
-	border: 1px solid var(--border-color);
+	padding: 0;
+	border: none;
 	border-radius: var(--radius-md);
 	background: var(--bg-secondary);
-	color: var(--text-primary);
-	font-size: 1rem;
-	font-weight: 500;
 	cursor: pointer;
-	transition:
-		background 0.2s,
-		border-color 0.2s;
+	transition: opacity 0.2s;
 }
 
 .btn-google:hover {
-	background: var(--bg-hover);
-	border-color: var(--border-subtle);
+	opacity: 0.85;
 }
 
 /*
- * Official Google wordmark (GoogleLogo_RGB_Color.png downloaded from
- * Google's brand site). Displayed at a height appropriate for a sign-in
- * button; width follows the asset's natural aspect ratio (~1.83:1).
+ * Official Google sign-in button asset (downloaded from
+ * https://developers.google.com/identity/branding-guidelines)
+ * Dark theme with "Sign in with Google" text in pill shape.
  * Per Google's brand guidelines: do not crop, recolor, rotate, or
  * apply effects to the image.
  */
 .google-logo {
-	height: 40px;
+	height: 48px;
 	width: auto;
 	display: block;
 }
