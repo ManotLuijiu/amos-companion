@@ -234,15 +234,18 @@ pub struct RegisteredDevice {
 pub async fn get_registered_devices(
     api_url: &str,
     user_id: &str,
+    workspace_id: &str,
 ) -> Result<Vec<RegisteredDevice>, String> {
-    info!("Getting registered devices from {}", api_url);
+    info!("Getting registered devices from {} for user {} in workspace {}", api_url, user_id, workspace_id);
 
     let url = format!("{}/devices", api_url.trim_end_matches('/'));
 
     let client = reqwest::Client::new();
+    info!("[API] GET {} with headers: X-User-ID={}, X-Workspace-ID={}", url, user_id, workspace_id);
     let response = client
         .get(&url)
         .header("X-User-ID", user_id)
+        .header("X-Workspace-ID", workspace_id)
         .send()
         .await
         .map_err(|e| format!("Failed to get devices: {}", e))?;
@@ -267,10 +270,11 @@ pub async fn get_registered_devices(
 pub async fn update_device_name(
     api_url: &str,
     user_id: &str,
+    workspace_id: &str,
     device_id: &str,
     name: &str,
 ) -> Result<(), String> {
-    info!("Updating device {} name to '{}'", device_id, name);
+    info!("Updating device {} name to '{}' for user {} in workspace {}", device_id, name, user_id, workspace_id);
 
     let url = format!("{}/devices/{}", api_url.trim_end_matches('/'), device_id);
 
@@ -280,9 +284,11 @@ pub async fn update_device_name(
     }
 
     let client = reqwest::Client::new();
+    info!("[API] PATCH {} with headers: X-User-ID={}, X-Workspace-ID={}, body={{name: '{}'}}", url, user_id, workspace_id, name);
     let response = client
         .patch(&url)
         .header("X-User-ID", user_id)
+        .header("X-Workspace-ID", workspace_id)
         .json(&UpdateRequest { name })
         .send()
         .await
