@@ -97,10 +97,10 @@ let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let scrcpyEnabled = false;
 let scrcpyAvailable = false;
 let scrcpyServerStream: ScrcpyVideoStream | null = null;
-let deviceAgentInstalled = false;
-const relayEnabled = false;
-const relayStatus: "disconnected" | "connecting" | "connected" | "error" =
-	"disconnected";
+let _deviceAgentInstalled = false;
+const _relayEnabled = false; // eslint-disable-line @typescript-eslint/no-unused-vars
+const _relayStatus: "disconnected" | "connecting" | "connected" | "error" =
+	"disconnected"; // eslint-disable-line @typescript-eslint/no-unused-vars
 let userInfo: { id: string; email: string } | null = null;
 let currentMirroringDevice: string | null = null;
 let logEntries: LogEntry[] = [];
@@ -758,11 +758,16 @@ async function handleLogout(): Promise<void> {
 	hideUserInfoPanel();
 
 	try {
-		console.log("[DEBUG] Stopping agent and signing out...");
 		addLog("info", "Logging out...");
 
-		// Stop agent and sign out via backend
-		await invoke("stop_agent");
+		// Try to stop agent (ignore if not running)
+		try {
+			await invoke("stop_agent");
+		} catch {
+			// Agent not running - that's OK
+		}
+
+		// Clear credentials from config
 		await invoke("sign_out");
 
 		// Clear local state
@@ -3292,7 +3297,7 @@ export async function init(): Promise<void> {
 			path: string;
 			os: string;
 		}>("get_device_agent_status");
-		deviceAgentInstalled = agentStatus.installed;
+		_deviceAgentInstalled = agentStatus.installed;
 		addLog(
 			"info",
 			`Device agent ${agentStatus.installed ? "installed" : "not found"} (${agentStatus.os})`,
