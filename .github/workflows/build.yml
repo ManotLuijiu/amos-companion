@@ -278,7 +278,8 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          aws s3 cp "${{ steps.find-binary.outputs.TARBALL }}" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz" \
+          TARBALL="dist/linux/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz"
+          aws s3 cp "$TARBALL" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
