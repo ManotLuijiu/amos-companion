@@ -57,13 +57,7 @@
         ],
         "section": "Utility",
         "priority": "optional",
-        "installHooks": {
-          "postInst": [
-            {
-              "script": "if [ -z \"$(grep '^Categories=' \"${DPKG_MAINTSCRIPT_PACKAGES-}/${DPKG_PACKAGENAME}.desktop}\" 2>/dev/null | cut -d= -f2)\" ]; then sed -i 's/^Categories=$/Categories=Utility;Network;RemoteAccess;DeveloperTools;/' \"${DPKG_MAINTSCRIPT_PACKAGES-}/${DPKG_PACKAGE}.desktop\" 2>/dev/null || sed -i 's/^Categories=$/Categories=Utility;Network;RemoteAccess;DeveloperTools;/' \"${DPKG_MAINTSCRIPT_PACKAGES-}/${DPKG_PACKAGE_NAME}.desktop\" 2>/dev/null || true; fi"
-            }
-          ]
-        }
+        "postInstallScript": "../scripts/deb-postinst.sh"
       }
     },
     "resources": [
