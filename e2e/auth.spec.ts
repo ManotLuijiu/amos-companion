@@ -42,7 +42,10 @@ test.describe("Email/Password Authentication", () => {
 			test("should accept valid credentials and log in", async ({ page }) => {
 				// Skip if no real password provided (CI environment)
 				if (!process.env.E2E_TEST_PASSWORD) {
-					test.skip(true, "E2E_TEST_PASSWORD not set — set the env var to run this test");
+					test.skip(
+						true,
+						"E2E_TEST_PASSWORD not set — set the env var to run this test",
+					);
 					return;
 				}
 

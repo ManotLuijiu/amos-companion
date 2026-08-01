@@ -68,8 +68,8 @@ pub async fn ensure_workspace_exists(api_url: &str, user_id: &str) -> Result<Str
         api_url, user_id
     );
 
-    // Call GET /auth/workspace/default - this creates if not exists
-    let url = format!("{}/auth/workspace/default", api_url.trim_end_matches('/'));
+    // Call GET /api/auth/workspace/default - this creates if not exists
+    let url = format!("{}/api/auth/workspace/default", api_url.trim_end_matches('/'));
 
     let client = reqwest::Client::new();
     let response = client
@@ -118,7 +118,7 @@ pub async fn register_device_agent(
     );
 
     let url = format!(
-        "{}/auth/device-agent/register",
+        "{}/api/auth/device-agent/register",
         api_url.trim_end_matches('/')
     );
 
@@ -174,7 +174,7 @@ pub async fn get_device_token(
 ) -> Result<(String, i64), String> {
     info!("Getting device token from {}", api_url);
 
-    let url = format!("{}/auth/device-token", api_url.trim_end_matches('/'));
+    let url = format!("{}/api/auth/device-token", api_url.trim_end_matches('/'));
 
     #[derive(Serialize)]
     struct TokenRequest<'a> {
@@ -238,7 +238,7 @@ pub async fn get_registered_devices(
 ) -> Result<Vec<RegisteredDevice>, String> {
     info!("Getting registered devices from {} for user {} in workspace {}", api_url, user_id, workspace_id);
 
-    let url = format!("{}/devices", api_url.trim_end_matches('/'));
+    let url = format!("{}/api/devices", api_url.trim_end_matches('/'));
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -279,7 +279,7 @@ pub async fn update_device_name(
 ) -> Result<(), String> {
     info!("Updating device {} name to '{}' for user {} in workspace {}", device_id, name, user_id, workspace_id);
 
-    let url = format!("{}/devices/{}", api_url.trim_end_matches('/'), device_id);
+    let url = format!("{}/api/devices/{}", api_url.trim_end_matches('/'), device_id);
 
     #[derive(Serialize)]
     struct UpdateRequest<'a> {
