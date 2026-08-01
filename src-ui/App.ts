@@ -1494,7 +1494,17 @@ async function handleInstallDeps(): Promise<void> {
 
 	try {
 		const result = await invoke<string>("install_mirror_deps");
-		addLog("info", result);
+		// Split multi-line result into individual log entries
+		const lines = result.split("\n").filter((l) => l.trim());
+		for (const line of lines) {
+			if (line.includes("❌")) {
+				addLog("error", line.trim());
+			} else if (line.includes("✅")) {
+				addLog("info", line.trim());
+			} else {
+				addLog("info", line.trim());
+			}
+		}
 	} catch (err) {
 		addLog("error", `Install failed: ${err}`);
 		if (statusEl) {
@@ -2583,7 +2593,9 @@ class ScrcpyVideoStream {
 	private _firstFrameRendered = false;
 	private _frameRenderResolve: ((value: boolean) => void) | null = null;
 	private _firstFrameTimeout: ReturnType<typeof setTimeout> | null = null;
+	private _decoderErrorCount = 0;
 	private static readonly FIRST_FRAME_TIMEOUT_MS = 5000;
+	private static readonly MAX_DECODER_ERRORS = 3;
 
 	constructor(private serial: string) {}
 
@@ -2762,7 +2774,12 @@ class ScrcpyVideoStream {
 				}
 			},
 			error: (error) => {
-				addLog("warn", `[SCRCPY] Decoder error: ${error}`);
+				this._decoderErrorCount++;
+				if (this._decoderErrorCount <= ScrcpyVideoStream.MAX_DECODER_ERRORS) {
+					addLog("warn", `[SCRCPY] Decoder error: ${error}`);
+				} else if (this._decoderErrorCount === ScrcpyVideoStream.MAX_DECODER_ERRORS + 1) {
+					addLog("warn", `[SCRCPY] Decoder errors suppressed (codec not supported on this browser/Linux)`);
+				}
 			},
 		});
 
@@ -3406,16 +3423,34 @@ function showUpdateBanner(latestVersion: string, installScript: string): void {
 
 	const banner = document.createElement("div");
 	banner.id = "update-banner";
-	banner.innerHTML = `
-		<div class="update-banner-content">
-			<span class="update-banner-icon">🆕</span>
-			<span class="update-banner-text">
-				<strong>Update available:</strong> v${latestVersion} is ready.
-			</span>
-			<a class="update-banner-btn" href="#" id="btn-install-update">Install</a>
-			<button class="update-banner-close" id="btn-close-update-banner" aria-label="Dismiss">×</button>
-		</div>
-	`;
+	// Build banner safely using DOM APIs (no innerHTML)
+	const content = document.createElement("div");
+	content.className = "update-banner-content";
+	const icon = document.createElement("span");
+	icon.className = "update-banner-icon";
+	icon.textContent = "🆕";
+	const text = document.createElement("span");
+	text.className = "update-banner-text";
+	const strong = document.createElement("strong");
+	strong.textContent = "Update available:";
+	const versionText = document.createTextNode(` v${latestVersion} is ready.`);
+	text.appendChild(strong);
+	text.appendChild(versionText);
+	const installLink = document.createElement("a");
+	installLink.className = "update-banner-btn";
+	installLink.href = "#";
+	installLink.id = "btn-install-update";
+	installLink.textContent = "Install";
+	const closeBtn = document.createElement("button");
+	closeBtn.className = "update-banner-close";
+	closeBtn.id = "btn-close-update-banner";
+	closeBtn.setAttribute("aria-label", "Dismiss");
+	closeBtn.textContent = "×";
+	content.appendChild(icon);
+	content.appendChild(text);
+	content.appendChild(installLink);
+	content.appendChild(closeBtn);
+	banner.appendChild(content);
 
 	// Dismiss handler
 	banner
