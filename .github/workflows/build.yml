@@ -175,6 +175,14 @@ jobs:
           echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
           echo "Found AppImage: $APPIMAGE"
 
+      # ── Find .deb package ────────────────────────────────────────────────────
+      - name: Find .deb package
+        id: find-deb
+        run: |
+          DEB=$(find src-tauri/target -name "*.deb" -type f | grep bundle/deb | head -1)
+          echo "deb_path=$DEB" >> $GITHUB_OUTPUT
+          echo "Found .deb: $DEB"
+
       # ── Build Portable Tarball ──────────────────────────────────────────────
       - name: Find compiled binary
         id: find-binary
@@ -238,6 +246,25 @@ jobs:
             --region auto \
             --acl public-read
           echo "Uploaded: AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
+          echo "Public URL: https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
+
+      - name: Upload .deb package to R2
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          if [ -n "${{ steps.find-deb.outputs.deb_path }}" ]; then
+            aws s3 cp "${{ steps.find-deb.outputs.deb_path }}" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/amos-companion_${{ matrix.suffix }}_${VERSION}.deb" \
+              --endpoint-url "${{ env.R2_ENDPOINT }}" \
+              --region auto \
+              --acl public-read
+            echo "Uploaded: amos-companion_${{ matrix.suffix }}_${VERSION}.deb"
+          else
+            echo "No .deb found, skipping upload"
+          fi
 
       - name: Upload Portable Tarball to R2
         run: |
@@ -247,7 +274,7 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          aws s3 cp "${{ steps.find-binary.outputs.TARBALL }}" "s3://${{ env.R2_BUCKET }}/companion/${{ github.ref_name }}/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz" \
+          aws s3 cp "${{ steps.find-binary.outputs.TARBALL }}" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
@@ -255,10 +282,11 @@ jobs:
 
       - name: Upload Install Script to R2
         run: |
-          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/${{ github.ref_name }}/install.sh" \
+          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/install.sh" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
+          # Also upload to latest/ for VERSION=latest install.sh
           aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/latest/install.sh" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
@@ -371,12 +399,15 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
 
-          # Build per-platform URLs
-          APPIMAGE_AMD64="https://releases.amos.moo-vpn.online/companion/AMOS_Companion_${VERSION}_amd64.AppImage"
-          APPIMAGE_ARM64="https://releases.amos.moo-vpn.online/companion/AMOS_Companion_${VERSION}_arm64.AppImage"
-          TAR_AMD64="https://releases.amos.moo-vpn.online/companion/${TAG}/amos-companion-amd64-${VERSION}.tar.gz"
-          TAR_ARM64="https://releases.amos.moo-vpn.online/companion/${TAG}/amos-companion-arm64-${VERSION}.tar.gz"
-          INSTALL_SH="https://releases.amos.moo-vpn.online/companion/${TAG}/install.sh"
+          # Build per-platform URLs (R2 public bucket URL)
+          R2_PUBLIC="https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion"
+          APPIMAGE_AMD64="${R2_PUBLIC}/AMOS_Companion_${VERSION}_amd64.AppImage"
+          APPIMAGE_ARM64="${R2_PUBLIC}/AMOS_Companion_${VERSION}_aarch64.AppImage"
+          TAR_AMD64="${R2_PUBLIC}/${VERSION}/amos-companion-amd64-${VERSION}.tar.gz"
+          TAR_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion-arm64-${VERSION}.tar.gz"
+          DEB_AMD64="${R2_PUBLIC}/${VERSION}/amos-companion_amd64_${VERSION}.deb"
+          DEB_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion_arm64_${VERSION}.deb"
+          INSTALL_SH="${R2_PUBLIC}/latest/install.sh"
 
           cat > manifest.json << EOF
           {
@@ -388,6 +419,10 @@ jobs:
                 "appimage": {
                   "amd64": "${APPIMAGE_AMD64}",
                   "arm64": "${APPIMAGE_ARM64}"
+                },
+                "deb": {
+                  "amd64": "${DEB_AMD64}",
+                  "arm64": "${DEB_ARM64}"
                 },
                 "tarball": {
                   "amd64": "${TAR_AMD64}",
@@ -405,7 +440,7 @@ jobs:
           TAG="${{ github.ref_name }}"
 
           # Upload versioned manifest
-          aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/${TAG}/manifest.json" \
+          aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/manifest.json" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read \

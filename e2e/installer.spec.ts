@@ -25,7 +25,11 @@ function src(filename: string): string {
 	return readFileSync(join(PROJECT_ROOT, filename), "utf8");
 }
 
-function srcMatch(filename: string, pattern: RegExp | string, msg: string): void {
+function srcMatch(
+	filename: string,
+	pattern: RegExp | string,
+	msg: string,
+): void {
 	const content = src(filename);
 	if (typeof pattern === "string") {
 		expect(content).toMatch(pattern);
@@ -39,8 +43,11 @@ function srcMatch(filename: string, pattern: RegExp | string, msg: string): void
 
 test.describe("adb.rs — find_adb and auto-install", () => {
 	test("bundled_adb_path() returns platform-tools subdirectory", () => {
-		srcMatch("src-tauri/src/adb.rs", /fn bundled_adb_path\(\).*platform-tools/s,
-			"bundled_adb_path() uses 'platform-tools'");
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/fn bundled_adb_path\(\).*platform-tools/s,
+			"bundled_adb_path() uses 'platform-tools'",
+		);
 	});
 
 	test("find_adb() checks bundled path BEFORE system candidates", () => {
@@ -53,18 +60,38 @@ test.describe("adb.rs — find_adb and auto-install", () => {
 	});
 
 	test("find_adb() falls back to PATH", () => {
-		srcMatch("src-tauri/src/adb.rs", /trying PATH/, "find_adb() falls back to PATH");
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/trying PATH/,
+			"find_adb() falls back to PATH",
+		);
 	});
 
 	test("install_adb_blocking() creates single-thread tokio runtime", () => {
-		srcMatch("src-tauri/src/adb.rs", /new_current_thread/, "uses new_current_thread tokio runtime");
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/new_current_thread/,
+			"uses new_current_thread tokio runtime",
+		);
 		srcMatch("src-tauri/src/adb.rs", /block_on/, "calls block_on");
-		srcMatch("src-tauri/src/adb.rs", /dependency_manager::install_adb/, "calls dependency_manager install function");
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/dependency_manager::install_adb/,
+			"calls dependency_manager install function",
+		);
 	});
 
 	test("install_adb_blocking() tries system install first, then bundled download", () => {
-		srcMatch("src-tauri/src/adb.rs", /try_system_install.*adb/s, "tries apt/brew/choco first");
-		srcMatch("src-tauri/src/adb.rs", /install_adb\(\).*await/s, "falls back to bundled download");
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/try_system_install.*adb/s,
+			"tries apt/brew/choco first",
+		);
+		srcMatch(
+			"src-tauri/src/adb.rs",
+			/install_adb\(\).*await/s,
+			"falls back to bundled download",
+		);
 	});
 });
 
@@ -72,35 +99,58 @@ test.describe("adb.rs — find_adb and auto-install", () => {
 
 test.describe("dependency_manager.rs — ADB integration", () => {
 	test("get_adb_dir() returns platform-tools subdirectory", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/pub fn get_adb_dir\(\).*platform-tools/s, "get_adb_dir() uses 'platform-tools'");
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/pub fn get_adb_dir\(\).*platform-tools/s,
+			"get_adb_dir() uses 'platform-tools'",
+		);
 	});
 
 	test("get_adb_bin() delegates to get_adb_dir()", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/pub fn get_adb_bin\(\).*get_adb_dir\(\)/s, "get_adb_bin() uses get_adb_dir()");
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/pub fn get_adb_bin\(\).*get_adb_dir\(\)/s,
+			"get_adb_bin() uses get_adb_dir()",
+		);
 	});
 
 	test("get_adb_url() covers Linux, macOS, Windows", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/dl\.google\.com.*platform-tools-latest-linux\.zip/, "Linux URL present");
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/dl\.google\.com.*platform-tools-latest-darwin\.zip/, "macOS URL present");
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/dl\.google\.com.*platform-tools-latest-windows\.zip/, "Windows URL present");
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/dl\.google\.com.*platform-tools-latest-linux\.zip/,
+			"Linux URL present",
+		);
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/dl\.google\.com.*platform-tools-latest-darwin\.zip/,
+			"macOS URL present",
+		);
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/dl\.google\.com.*platform-tools-latest-windows\.zip/,
+			"Windows URL present",
+		);
 	});
 
 	test("is_adb_installed() checks system PATH and bundled path", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/fn is_adb_installed\(\).*get_adb_bin\(\)/s, "checks bundled path");
-		srcMatch("src-tauri/src/dependency_manager.rs",
-			/which.*adb/, "checks system PATH via which");
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/fn is_adb_installed\(\).*get_adb_bin\(\)/s,
+			"checks bundled path",
+		);
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
+			/which.*adb/,
+			"checks system PATH via which",
+		);
 	});
 
 	test("install_adb() tries system install first, then downloads", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
 			/pub async fn install_adb\(\)[\s\S]*?try_system_install.*adb/s,
-			"tries apt/brew/choco first");
+			"tries apt/brew/choco first",
+		);
 
 		// Verify download_file is called after install_adb and platform-tools is in the file
 		const content = src("src-tauri/src/dependency_manager.rs");
@@ -113,34 +163,44 @@ test.describe("dependency_manager.rs — ADB integration", () => {
 
 	test("install_all() includes install_adb()", () => {
 		const content = src("src-tauri/src/dependency_manager.rs");
-		const fnBody = content.match(/pub async fn install_all\(\)[^{]*\{([\s\S]*?)\n\}/)?.[1];
+		const fnBody = content.match(
+			/pub async fn install_all\(\)[^{]*\{([\s\S]*?)\n\}/,
+		)?.[1];
 		expect(fnBody).toBeTruthy();
 		expect(fnBody).toMatch(/install_adb\(\)/);
 		console.log("  ✓ install_all() calls install_adb()");
 	});
 
 	test("are_all_deps_installed() includes is_adb_installed()", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
 			/are_all_deps_installed.*is_adb_installed\(\)/s,
-			"includes is_adb_installed()");
+			"includes is_adb_installed()",
+		);
 	});
 
 	test("DependencyStatus struct has 'adb: bool' field", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
 			/pub struct DependencyStatus[\s\S]*?pub adb:\s*bool/s,
-			"has 'adb: bool' field");
+			"has 'adb: bool' field",
+		);
 	});
 
 	test("DependencyStatus::check() populates adb from is_adb_installed()", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
 			/adb:\s*is_adb_installed\(\)/,
-			"sets adb field from is_adb_installed()");
+			"sets adb field from is_adb_installed()",
+		);
 	});
 
 	test("get_path_env() includes ADB directory", () => {
-		srcMatch("src-tauri/src/dependency_manager.rs",
+		srcMatch(
+			"src-tauri/src/dependency_manager.rs",
 			/get_path_env\(\).*get_adb_dir\(\)/s,
-			"prepends bundled ADB to PATH");
+			"prepends bundled ADB to PATH",
+		);
 	});
 });
 
@@ -148,16 +208,27 @@ test.describe("dependency_manager.rs — ADB integration", () => {
 
 test.describe("lib.rs — Tauri command registration", () => {
 	test("install_adb async fn is defined", () => {
-		srcMatch("src-tauri/src/lib.rs", /async fn install_adb\(\)/, "install_adb() defined");
+		srcMatch(
+			"src-tauri/src/lib.rs",
+			/async fn install_adb\(\)/,
+			"install_adb() defined",
+		);
 	});
 
 	test("install_adb command calls deps::install_adb()", () => {
-		srcMatch("src-tauri/src/lib.rs", /deps::install_adb\(\)/, "calls deps::install_adb()");
+		srcMatch(
+			"src-tauri/src/lib.rs",
+			/deps::install_adb\(\)/,
+			"calls deps::install_adb()",
+		);
 	});
 
 	test("install_adb is registered in invoke_handler", () => {
-		srcMatch("src-tauri/src/lib.rs", /invoke_handler.*\n.*install_adb/s,
-			"install_adb in invoke_handler");
+		srcMatch(
+			"src-tauri/src/lib.rs",
+			/invoke_handler.*\n.*install_adb/s,
+			"install_adb in invoke_handler",
+		);
 	});
 });
 
@@ -185,29 +256,57 @@ test.describe("install.sh — Linux installer script", () => {
 
 	test("downloads from RELEASE_BASE environment variable", () => {
 		srcMatch("scripts/install.sh", /RELEASE_BASE=/, "defines RELEASE_BASE");
-		srcMatch("scripts/install.sh", /TARBALL_URL=.*RELEASE_BASE/, "uses RELEASE_BASE for tarball");
+		srcMatch(
+			"scripts/install.sh",
+			/TARBALL_URL=.*RELEASE_BASE/,
+			"uses RELEASE_BASE for tarball",
+		);
 	});
 
 	test("defaults install dir to ~/.local/bin", () => {
-		srcMatch("scripts/install.sh", /\$HOME\/\.local\/bin/, "defaults to ~/.local/bin");
+		srcMatch(
+			"scripts/install.sh",
+			/\$HOME\/\.local\/bin/,
+			"defaults to ~/.local/bin",
+		);
 	});
 
 	test("creates .desktop file in ~/.local/share/applications", () => {
-		srcMatch("scripts/install.sh", /amos-companion\.desktop/, "creates .desktop entry");
-		srcMatch("scripts/install.sh", /DESKTOP_DIR|\.local\/share\/applications/, "in correct directory");
+		srcMatch(
+			"scripts/install.sh",
+			/amos-companion\.desktop/,
+			"creates .desktop entry",
+		);
+		srcMatch(
+			"scripts/install.sh",
+			/DESKTOP_DIR|\.local\/share\/applications/,
+			"in correct directory",
+		);
 	});
 
 	test("enables autostart via X-GNOME-Autostart-enabled=true", () => {
-		srcMatch("scripts/install.sh", /X-GNOME-Autostart-enabled=true/, "sets autostart");
+		srcMatch(
+			"scripts/install.sh",
+			/X-GNOME-Autostart-enabled=true/,
+			"sets autostart",
+		);
 	});
 
 	test("supports VERSION environment variable", () => {
-		srcMatch("scripts/install.sh", /VERSION=.*latest/, "defaults VERSION to latest");
+		srcMatch(
+			"scripts/install.sh",
+			/VERSION=.*latest/,
+			"defaults VERSION to latest",
+		);
 	});
 
 	test("resolves latest version from manifest.json", () => {
 		srcMatch("scripts/install.sh", /manifest\.json/, "fetches manifest.json");
-		srcMatch("scripts/install.sh", /resolve_version/, "has resolve_version function");
+		srcMatch(
+			"scripts/install.sh",
+			/resolve_version/,
+			"has resolve_version function",
+		);
 	});
 
 	test("detects x86_64 and aarch64 architectures", () => {
@@ -216,7 +315,11 @@ test.describe("install.sh — Linux installer script", () => {
 	});
 
 	test("has arch-specific tarball filenames", () => {
-		srcMatch("scripts/install.sh", /amos-companion-\$\{ARCH\}/, "uses arch in tarball name");
+		srcMatch(
+			"scripts/install.sh",
+			/amos-companion-\$\{ARCH\}/,
+			"uses arch in tarball name",
+		);
 	});
 });
 
@@ -225,7 +328,8 @@ test.describe("install.sh — Linux installer script", () => {
 test.describe("Bundled ADB path formula", () => {
 	test("uses platform-tools subdirectory (standard Android SDK name)", () => {
 		// The directory name must match Google's published SDK
-		const url = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip";
+		const url =
+			"https://dl.google.com/android/repository/platform-tools-latest-linux.zip";
 		expect(url).toMatch(/platform-tools/);
 		expect(url).toMatch(/dl\.google\.com/);
 		console.log("  ✓ standard platform-tools URL verified");

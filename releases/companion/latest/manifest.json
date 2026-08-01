@@ -1,18 +1,34 @@
 {
   "latest": "1.6.42",
   "tag": "companion/v1.6.42",
-  "released": "2025-01-01T00:00:00Z",
+  "released": "2026-08-01T14:54:00Z",
   "releases": {
     "1.6.42": {
       "appimage": {
-        "amd64": "https://releases.amos.moo-vpn.online/companion/AMOS_Companion_1.6.42_amd64.AppImage",
-        "arm64": "https://releases.amos.moo-vpn.online/companion/AMOS_Companion_1.6.42_arm64.AppImage"
+        "amd64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.42_amd64.AppImage",
+        "arm64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.42_aarch64.AppImage"
+      },
+      "deb": {
+        "amd64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/v1.6.42/amos-companion_amd64_1.6.42.deb",
+        "arm64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/v1.6.42/amos-companion_arm64_1.6.42.deb"
       },
       "tarball": {
-        "amd64": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/amos-companion-amd64-1.6.42.tar.gz",
-        "arm64": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/amos-companion-arm64-1.6.42.tar.gz"
+        "amd64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/v1.6.42/amos-companion-amd64-1.6.42.tar.gz",
+        "arm64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/v1.6.42/amos-companion-arm64-1.6.42.tar.gz"
       },
-      "installScript": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/install.sh"
+      "installScript": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/latest/install.sh"
+    },
+    "1.6.41": {
+      "appimage": {
+        "amd64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.41_amd64.AppImage",
+        "arm64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.41_aarch64.AppImage"
+      }
+    },
+    "1.6.40": {
+      "appimage": {
+        "amd64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.40_amd64.AppImage",
+        "arm64": "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_1.6.40_aarch64.AppImage"
+      }
     }
   }
 }

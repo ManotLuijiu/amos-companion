@@ -32,7 +32,8 @@
       "dmg",
       "app",
       "appimage",
-      "nsis"
+      "nsis",
+      "deb"
     ],
     "icon": [
       "icons/32x32.png",
@@ -47,6 +48,17 @@
     "linux": {
       "appimage": {
         "bundleMediaFramework": false
+      },
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "section": "Utility",
+        "priority": "optional",
+        "homepage": "https://amos.moo-vpn.online",
+        "description": "Connect Android devices to AMOS — screen mirror, device control, and device management for AMOS SaaS."
       }
     },
     "resources": [

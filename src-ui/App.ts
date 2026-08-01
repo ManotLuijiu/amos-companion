@@ -3237,11 +3237,14 @@ interface VersionManifest {
 	latest: string;
 	tag: string;
 	released: string;
-	releases: Record<string, {
-		appimage: { amd64: string; arm64: string };
-		tarball: { amd64: string; arm64: string };
-		installScript: string;
-	}>;
+	releases: Record<
+		string,
+		{
+			appimage: { amd64: string; arm64: string };
+			tarball: { amd64: string; arm64: string };
+			installScript: string;
+		}
+	>;
 }
 
 /** Compare two semver strings. Returns negative if a < b. */
