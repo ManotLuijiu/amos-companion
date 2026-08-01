@@ -56,9 +56,7 @@
           "libayatana-appindicator3-1"
         ],
         "section": "Utility",
-        "priority": "optional",
-        "homepage": "https://amos.moo-vpn.online",
-        "description": "Connect Android devices to AMOS — screen mirror, device control, and device management for AMOS SaaS."
+        "priority": "optional"
       }
     },
     "resources": [
