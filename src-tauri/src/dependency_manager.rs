@@ -161,8 +161,16 @@ fn get_adb_url(os: OS) -> &'static str {
 
 // ─── Installation Status ────────────────────────────────────────────────────────
 
-/// Check if Node.js is installed
+/// Check if Node.js is installed (bundled or system)
 pub fn is_nodejs_installed() -> bool {
+    // Check system node first (nvm, fnm, apt, brew, etc.)
+    if let Ok(output) = Command::new("which").arg("node").output() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() && PathBuf::from(&path).exists() {
+            info!("Found system node at: {}", path);
+            return true;
+        }
+    }
     get_nodejs_bin().exists()
 }
 
@@ -619,18 +627,44 @@ pub async fn install_adb() -> Result<(), String> {
     Ok(())
 }
 
-/// Install all dependencies
-pub async fn install_all() -> Result<(), String> {
-    info!("Installing all mirror dependencies...");
+/// Install all dependencies. Returns a multi-line summary string for frontend logging.
+pub async fn install_all() -> Result<String, String> {
+    let mut lines = Vec::new();
+    lines.push("Installing mirror dependencies...".to_string());
 
-    install_nodejs().await?;
-    install_scrcpy().await?;
-    install_ffmpeg().await?;
-    install_ws_scrcpy().await?;
-    install_adb().await?;
+    // Node.js
+    match install_nodejs().await {
+        Ok(_) => lines.push("✅ Node.js installed".to_string()),
+        Err(e) => lines.push(format!("❌ Node.js failed: {}", e)),
+    }
 
-    info!("All mirror dependencies installed successfully!");
-    Ok(())
+    // scrcpy
+    match install_scrcpy().await {
+        Ok(_) => lines.push("✅ scrcpy installed".to_string()),
+        Err(e) => lines.push(format!("❌ scrcpy failed: {}", e)),
+    }
+
+    // ffmpeg
+    match install_ffmpeg().await {
+        Ok(_) => lines.push("✅ ffmpeg installed".to_string()),
+        Err(e) => lines.push(format!("❌ ffmpeg failed: {}", e)),
+    }
+
+    // ws-scrcpy
+    match install_ws_scrcpy().await {
+        Ok(_) => lines.push("✅ ws-scrcpy installed".to_string()),
+        Err(e) => lines.push(format!("❌ ws-scrcpy failed: {}", e)),
+    }
+
+    // ADB
+    match install_adb().await {
+        Ok(_) => lines.push("✅ ADB installed".to_string()),
+        Err(e) => lines.push(format!("❌ ADB failed: {}", e)),
+    }
+
+    let summary = lines.join("\n");
+    info!("Install summary:\n{}", summary);
+    Ok(summary)
 }
 
 // ─── Status ──────────────────────────────────────────────────────────────────

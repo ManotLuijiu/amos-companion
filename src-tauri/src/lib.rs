@@ -157,9 +157,7 @@ async fn get_device_agent_status() -> Result<DeviceAgentStatus, String> {
 
 #[tauri::command]
 async fn install_mirror_deps() -> Result<String, String> {
-    info!("Installing mirror dependencies...");
-    deps::install_all().await?;
-    Ok("All mirror dependencies installed successfully!".to_string())
+    deps::install_all().await
 }
 
 #[tauri::command]
