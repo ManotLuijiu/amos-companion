@@ -1126,7 +1126,27 @@ function createSettingsCard(): HTMLElement {
 	);
 	relayItem.append(relayLabel, relayToggleContainer);
 
-	body.append(apiItem, perfItem, relayItem, openWebBtn);
+	// Dependencies Section
+	const depsItem = document.createElement("div");
+	depsItem.className = "setting-item";
+	const depsLabel = document.createElement("label");
+	depsLabel.className = "setting-label";
+	depsLabel.textContent = "Android Dependencies";
+	const depsStatus = document.createElement("span");
+	depsStatus.className = "setting-hint";
+	depsStatus.id = "deps-status";
+	depsStatus.textContent = "Checking...";
+	depsLabel.appendChild(depsStatus);
+	const depsBtn = document.createElement("button");
+	depsBtn.className = "btn btn-sm";
+	depsBtn.id = "btn-install-deps";
+	depsBtn.textContent = "Install";
+	depsBtn.style.display = "none";
+	depsBtn.onclick = handleInstallDeps;
+	depsLabel.appendChild(depsBtn);
+	depsItem.append(depsLabel);
+
+	body.append(apiItem, perfItem, relayItem, depsItem, openWebBtn);
 	card.appendChild(body);
 
 	return card;
@@ -1401,6 +1421,114 @@ async function handleStop(): Promise<void> {
 async function handleOpenWebUI(): Promise<void> {
 	addLog("info", "Opening AMOS Web UI...");
 	await invoke("open_web_ui");
+}
+
+// ─── Dependency Management ────────────────────────────────────────────────────
+
+interface DependencyStatus {
+	nodejs: boolean;
+	scrcpy: boolean;
+	ffmpeg: boolean;
+	ws_scrcpy: boolean;
+	adb: boolean;
+	all_installed: boolean;
+	companion_dir: string;
+}
+
+let depsInstalling = false;
+
+async function refreshDepsStatus(): Promise<void> {
+	const statusEl = document.getElementById("deps-status");
+	const btnEl = document.getElementById("btn-install-deps") as HTMLButtonElement | null;
+	if (!statusEl) return;
+
+	try {
+		const status = await invoke<DependencyStatus>("get_mirror_deps_status");
+		const allOk = status.all_installed;
+
+		// Build status text showing what\'s missing
+		const missing: string[] = [];
+		if (!status.adb) missing.push("ADB");
+		if (!status.scrcpy) missing.push("scrcpy");
+		if (!status.ffmpeg) missing.push("ffmpeg");
+		if (!status.nodejs) missing.push("Node.js");
+		if (!status.ws_scrcpy) missing.push("ws-scrcpy");
+
+		if (allOk) {
+			statusEl.textContent = "✅ All installed";
+			statusEl.style.color = "#22c55e";
+			if (btnEl) btnEl.style.display = "none";
+		} else {
+			statusEl.textContent = `❌ Missing: ${missing.join(", ")}`;
+			statusEl.style.color = "#f59e0b";
+			if (btnEl) btnEl.style.display = "inline-block";
+		}
+	} catch {
+		statusEl.textContent = "⚠️ Unable to check";
+		statusEl.style.color = "#ef4444";
+	}
+}
+
+async function handleInstallDeps(): Promise<void> {
+	if (depsInstalling) return;
+	const btnEl = document.getElementById("btn-install-deps") as HTMLButtonElement | null;
+	const statusEl = document.getElementById("deps-status");
+
+	if (btnEl) {
+		btnEl.disabled = true;
+		btnEl.textContent = "Installing...";
+	}
+	depsInstalling = true;
+	addLog("info", "Installing mirror dependencies (ADB, scrcpy, ffmpeg, Node.js, ws-scrcpy)...");
+	if (statusEl) {
+		statusEl.textContent = "Installing...";
+		statusEl.style.color = "#3b82f6";
+	}
+
+	try {
+		const result = await invoke<string>("install_mirror_deps");
+		addLog("info", result);
+	} catch (err) {
+		addLog("error", `Install failed: ${err}`);
+		if (statusEl) {
+			statusEl.textContent = `❌ Install failed: ${err}`;
+			statusEl.style.color = "#ef4444";
+		}
+	}
+
+	depsInstalling = false;
+	await refreshDepsStatus();
+
+	if (btnEl) {
+		btnEl.disabled = false;
+		btnEl.textContent = "Install";
+	}
+}
+
+/**
+ * Auto-install missing dependencies if not already installing.
+ * Silently installs in background; only logs on failure.
+ * Returns immediately so mirroring is not blocked.
+ */
+async function tryAutoInstallDeps(): Promise<void> {
+	if (depsInstalling) return;
+	try {
+		const status = await invoke<DependencyStatus>("get_mirror_deps_status");
+		if (status.all_installed) return;
+	} catch {
+		return;
+	}
+	// Not installed and not currently installing — trigger install
+	depsInstalling = true;
+	addLog("warn", "Missing dependencies — auto-installing ADB, scrcpy, ffmpeg...");
+	try {
+		await invoke<string>("install_mirror_deps");
+		addLog("info", "Dependencies auto-installed successfully");
+	} catch (err) {
+		addLog("error", `Auto-install failed: ${err}`);
+	}
+	depsInstalling = false;
+	await refreshDepsStatus();
 }
 
 async function handleDeviceClick(device: DeviceInfo): Promise<void> {
@@ -2788,6 +2916,8 @@ async function startMirror(device: DeviceInfo): Promise<void> {
 
 	// Try real video streaming first (screenrecord + WebCodecs)
 	// Falls back to screenshot polling if video stream fails to start
+	// Auto-install missing dependencies if needed
+	await tryAutoInstallDeps();
 	addLog("info", `Starting mirror for ${device.serial}...`);
 	const videoStarted = await tryStartVideoStream(device.serial);
 	if (!videoStarted) {
@@ -3436,6 +3566,9 @@ export async function init(): Promise<void> {
 
 	// Auto-refresh status every 5 seconds
 	setInterval(() => refreshStatus(), 5000);
+
+	// Check dependency status (ADB, scrcpy, ffmpeg, Node.js, ws-scrcpy)
+	refreshDepsStatus();
 
 	// Check for app updates (non-blocking — runs after init)
 	checkForUpdate();
