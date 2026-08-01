@@ -135,6 +135,14 @@ async fn install_device_agent() -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn install_adb() -> Result<String, String> {
+    info!("Installing ADB...");
+    deps::install_adb().await.map_err(|e| e.to_string())?;
+    let adb_path = adb::find_adb();
+    Ok(format!("ADB installed at: {}", adb_path))
+}
+
+#[tauri::command]
 async fn get_device_agent_status() -> Result<DeviceAgentStatus, String> {
     Ok(DeviceAgentStatus {
         installed: installer::is_installed(),
@@ -1126,6 +1134,7 @@ pub fn run() {
             open_web_ui,
             open_url,
             install_device_agent,
+            install_adb,
             get_device_agent_status,
             sign_in,
             sign_in_oauth,

@@ -76,6 +76,18 @@ pub fn get_ffmpeg_bin() -> PathBuf {
     ffmpeg_dir.join("bin").join(exe)
 }
 
+/// Directory for ADB (Android SDK Platform Tools)
+pub fn get_adb_dir() -> PathBuf {
+    get_companion_dir().join("platform-tools")
+}
+
+/// Get the adb binary path
+pub fn get_adb_bin() -> PathBuf {
+    let adb_dir = get_adb_dir();
+    let exe = if cfg!(target_os = "windows") { "adb.exe" } else { "adb" };
+    adb_dir.join(exe)
+}
+
 // ─── OS Detection ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -138,6 +150,15 @@ fn get_ffmpeg_url(os: OS) -> &'static str {
     }
 }
 
+fn get_adb_url(os: OS) -> &'static str {
+    // Android SDK Platform Tools — latest release
+    match os {
+        OS::Linux   => "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
+        OS::Macos   => "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
+        OS::Windows => "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+    }
+}
+
 // ─── Installation Status ────────────────────────────────────────────────────────
 
 /// Check if Node.js is installed
@@ -175,9 +196,21 @@ pub fn is_ws_scrcpy_installed() -> bool {
     ws_dir.exists() && ws_dir.join("package.json").exists()
 }
 
+/// Check if ADB is installed (either system or bundled)
+pub fn is_adb_installed() -> bool {
+    if let Ok(output) = Command::new("which").arg("adb").output() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() && PathBuf::from(&path).exists() {
+            info!("Found system adb at: {}", path);
+            return true;
+        }
+    }
+    get_adb_bin().exists()
+}
+
 /// Check if all dependencies are installed
 pub fn are_all_deps_installed() -> bool {
-    is_nodejs_installed() && is_scrcpy_installed() && is_ffmpeg_installed() && is_ws_scrcpy_installed()
+    is_nodejs_installed() && is_scrcpy_installed() && is_ffmpeg_installed() && is_ws_scrcpy_installed() && is_adb_installed()
 }
 
 // ─── System Installation ────────────────────────────────────────────────────────
@@ -516,11 +549,52 @@ pub fn get_path_env() -> String {
         paths.push(ffmpeg_bin.to_string_lossy().to_string());
     }
 
+    let adb_dir = get_adb_dir();
+    if adb_dir.exists() {
+        paths.push(adb_dir.to_string_lossy().to_string());
+    }
+
     if let Ok(system_path) = std::env::var("PATH") {
         paths.push(system_path);
     }
 
     paths.join(if cfg!(windows) { ";" } else { ":" })
+}
+
+/// Install ADB (Android SDK Platform Tools)
+pub async fn install_adb() -> Result<(), String> {
+    if is_adb_installed() {
+        info!("ADB already installed");
+        return Ok(());
+    }
+
+    // Try system install first
+    if try_system_install("adb").await.is_ok() {
+        info!("ADB installed via system package manager");
+        return Ok(());
+    }
+
+    info!("Installing ADB (Android SDK Platform Tools)...");
+
+    let os = OS::current();
+    let url = get_adb_url(os);
+    let dest_dir = get_adb_dir();
+
+    let temp_dir = get_companion_dir().join("temp");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let temp_file = temp_dir.join("platform-tools.zip");
+
+    download_file(url, &temp_file).await?;
+    extract_archive(&temp_file, &dest_dir, true)?;
+
+    let _ = std::fs::remove_file(&temp_file);
+
+    make_executable(&dest_dir)?;
+
+    info!("ADB installed successfully at {:?}", get_adb_bin());
+    Ok(())
 }
 
 /// Install all dependencies
@@ -531,6 +605,7 @@ pub async fn install_all() -> Result<(), String> {
     install_scrcpy().await?;
     install_ffmpeg().await?;
     install_ws_scrcpy().await?;
+    install_adb().await?;
 
     info!("All mirror dependencies installed successfully!");
     Ok(())
@@ -545,6 +620,7 @@ pub struct DependencyStatus {
     pub scrcpy: bool,
     pub ffmpeg: bool,
     pub ws_scrcpy: bool,
+    pub adb: bool,
     pub all_installed: bool,
     pub companion_dir: String,
 }
@@ -556,12 +632,13 @@ impl DependencyStatus {
             scrcpy: is_scrcpy_installed(),
             ffmpeg: is_ffmpeg_installed(),
             ws_scrcpy: is_ws_scrcpy_installed(),
+            adb: is_adb_installed(),
             all_installed: are_all_deps_installed(),
             companion_dir: get_companion_dir().to_string_lossy().to_string(),
         };
 
-        info!("Dependency status: Node.js={}, scrcpy={}, ffmpeg={}, ws-scrcpy={}",
-              status.nodejs, status.scrcpy, status.ffmpeg, status.ws_scrcpy);
+        info!("Dependency status: Node.js={}, scrcpy={}, ffmpeg={}, ws-scrcpy={}, ADB={}",
+              status.nodejs, status.scrcpy, status.ffmpeg, status.ws_scrcpy, status.adb);
 
         status
     }

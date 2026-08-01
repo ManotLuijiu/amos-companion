@@ -49,10 +49,10 @@
         "bundleMediaFramework": false
       }
     },
-    "resources": {
-      "./scrcpy-server/scrcpy-server.jar": "scrcpy-server.jar",
-      "../scripts/*": "scripts/"
-    }
+    "resources": [
+      "./scrcpy-server/scrcpy-server.jar",
+      "../scripts/*"
+    ]
   },
   "plugins": {
     "shell": {

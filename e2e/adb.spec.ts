@@ -1,4 +1,4 @@
-import { test, expect, describe } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 /**
  * E2E Tests for ADB Device Management
@@ -13,7 +13,7 @@ import { test, expect, describe } from "@playwright/test";
 const ADB_TIMEOUT = 10000;
 const DEVICE_SERIAL = process.env.ADB_DEVICE_SERIAL || "R7AL40JZNMV"; // Replace with your device
 
-describe.serial("ADB Device Connection", () => {
+test.describe.serial("ADB Device Connection", () => {
 	test("should detect connected device", async () => {
 		const { exec } = await import("child_process");
 		const adb = await new Promise<string>((resolve, reject) => {
@@ -82,13 +82,13 @@ describe.serial("ADB Device Connection", () => {
 	});
 });
 
-describe.serial("ADB Device Control", () => {
+test.describe.serial("ADB Device Control", () => {
 	test("should unlock device screen", async () => {
 		const { exec } = await import("child_process");
 		const adb = "/usr/local/bin/adb";
 
 		// Wake up the device
-		await new Promise<void>((resolve, reject) => {
+		await new Promise<void>((resolve, _reject) => {
 			exec(`${adb} -s ${DEVICE_SERIAL} shell input keyevent KEYCODE_WAKEUP`, { timeout: ADB_TIMEOUT }, (err) => {
 				if (err) console.warn("Wake failed:", err.message);
 				resolve();
@@ -96,7 +96,7 @@ describe.serial("ADB Device Control", () => {
 		});
 
 		// Unlock with swipe up (assuming lock screen)
-		await new Promise<void>((resolve, reject) => {
+		await new Promise<void>((resolve, _reject) => {
 			exec(`${adb} -s ${DEVICE_SERIAL} shell input swipe 360 1000 360 200`, { timeout: ADB_TIMEOUT }, (err) => {
 				if (err) console.warn("Swipe failed:", err.message);
 				resolve();
@@ -178,7 +178,7 @@ describe.serial("ADB Device Control", () => {
 	});
 });
 
-describe.serial("ADB Screenshot & Screenrecord", () => {
+test.describe.serial("ADB Screenshot & Screenrecord", () => {
 	test("should capture screenshot", async () => {
 		const { exec } = await import("child_process");
 		const fs = await import("fs");
@@ -221,7 +221,7 @@ describe.serial("ADB Screenshot & Screenrecord", () => {
 		const adb = "/usr/local/bin/adb";
 
 		// Check if screenrecord is available
-		const result = await new Promise<string>((resolve, reject) => {
+		const result = await new Promise<string>((resolve, _reject) => {
 			exec(`${adb} -s ${DEVICE_SERIAL} shell screenrecord --help`, { timeout: ADB_TIMEOUT }, (err, stdout) => {
 				if (err) resolve("");
 				else resolve(stdout);

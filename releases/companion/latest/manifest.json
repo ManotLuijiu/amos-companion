@@ -1,0 +1,18 @@
+{
+  "latest": "1.6.42",
+  "tag": "companion/v1.6.42",
+  "released": "2025-01-01T00:00:00Z",
+  "releases": {
+    "1.6.42": {
+      "appimage": {
+        "amd64": "https://releases.amos.moo-vpn.online/companion/AMOS_Companion_1.6.42_amd64.AppImage",
+        "arm64": "https://releases.amos.moo-vpn.online/companion/AMOS_Companion_1.6.42_arm64.AppImage"
+      },
+      "tarball": {
+        "amd64": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/amos-companion-amd64-1.6.42.tar.gz",
+        "arm64": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/amos-companion-arm64-1.6.42.tar.gz"
+      },
+      "installScript": "https://releases.amos.moo-vpn.online/companion/companion/v1.6.42/install.sh"
+    }
+  }
+}

@@ -3228,6 +3228,114 @@ function setupEventListeners(): void {
 	});
 }
 
+// ─── Version Update Checker ───────────────────────────────────────────────────
+
+const VERSION_MANIFEST_URL =
+	"https://releases.amos.moo-vpn.online/companion/latest/manifest.json";
+
+interface VersionManifest {
+	latest: string;
+	tag: string;
+	released: string;
+	releases: Record<string, {
+		appimage: { amd64: string; arm64: string };
+		tarball: { amd64: string; arm64: string };
+		installScript: string;
+	}>;
+}
+
+/** Compare two semver strings. Returns negative if a < b. */
+function compareVersions(a: string, b: string): number {
+	const partsA = a.split(".").map((p) => parseInt(p, 10) || 0);
+	const partsB = b.split(".").map((p) => parseInt(p, 10) || 0);
+	for (let i = 0; i < 3; i++) {
+		const av = partsA[i] ?? 0;
+		const bv = partsB[i] ?? 0;
+		if (av !== bv) return av - bv;
+	}
+	return 0;
+}
+
+/** Show the update banner at the top of the app. */
+function showUpdateBanner(latestVersion: string, installScript: string): void {
+	// Avoid duplicates
+	if (document.getElementById("update-banner")) return;
+
+	const banner = document.createElement("div");
+	banner.id = "update-banner";
+	banner.innerHTML = `
+		<div class="update-banner-content">
+			<span class="update-banner-icon">🆕</span>
+			<span class="update-banner-text">
+				<strong>Update available:</strong> v${latestVersion} is ready.
+			</span>
+			<a class="update-banner-btn" href="#" id="btn-install-update">Install</a>
+			<button class="update-banner-close" id="btn-close-update-banner" aria-label="Dismiss">×</button>
+		</div>
+	`;
+
+	// Dismiss handler
+	banner
+		.querySelector("#btn-close-update-banner")
+		?.addEventListener("click", () => {
+			banner.remove();
+		});
+
+	// Install handler: open install script in browser
+	banner
+		.querySelector("#btn-install-update")
+		?.addEventListener("click", async (e) => {
+			e.preventDefault();
+			addLog("info", `Opening update script: ${installScript}`);
+			await invoke("open_url", { url: installScript });
+		});
+
+	// Prepend to app root so it appears at top
+	const appRoot = document.getElementById("app");
+	if (appRoot) {
+		appRoot.prepend(banner);
+		addLog("info", `Update banner shown for v${latestVersion}`);
+	} else {
+		// Fallback: prepend to body
+		document.body.prepend(banner);
+	}
+}
+
+/** Check for updates and show banner if a newer version is available. */
+async function checkForUpdate(): Promise<void> {
+	const currentVersion = __APP_VERSION__;
+
+	try {
+		const response = await fetch(VERSION_MANIFEST_URL, {
+			// Cache-bust: don't use CDN cache, always get latest manifest
+			cache: "no-store",
+		});
+		if (!response.ok) {
+			addLog("debug", `Version check failed: HTTP ${response.status}`);
+			return;
+		}
+
+		const manifest = (await response.json()) as VersionManifest;
+		const latest = manifest.latest;
+
+		if (compareVersions(latest, currentVersion) > 0) {
+			addLog("info", `Update available: v${currentVersion} → v${latest}`);
+
+			// Get install script URL (use versioned URL from manifest)
+			const installScript =
+				manifest.releases[latest]?.installScript ??
+				`https://releases.amos.moo-vpn.online/companion/companion/${manifest.tag}/install.sh`;
+
+			showUpdateBanner(latest, installScript);
+		} else {
+			addLog("debug", `On latest version: v${currentVersion}`);
+		}
+	} catch (err) {
+		// Network errors (offline, R2 unreachable) are non-fatal
+		addLog("debug", `Update check skipped: ${err}`);
+	}
+}
+
 // ─── Entry ───────────────────────────────────────────────────────────────────
 
 export async function init(): Promise<void> {
@@ -3325,4 +3433,7 @@ export async function init(): Promise<void> {
 
 	// Auto-refresh status every 5 seconds
 	setInterval(() => refreshStatus(), 5000);
+
+	// Check for app updates (non-blocking — runs after init)
+	checkForUpdate();
 }

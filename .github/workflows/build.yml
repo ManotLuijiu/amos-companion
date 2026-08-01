@@ -108,22 +108,45 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.RELEASE_TOKEN }}
 
-  # Build for Linux (AppImage)
+  # Build for Linux — AppImage + Portable Tarball (x86_64 + aarch64)
   build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            rust_target: x86_64-unknown-linux-gnu
+            suffix: amd64
+            setup: ""
+          - arch: aarch64
+            rust_target: aarch64-unknown-linux-gnu
+            suffix: arm64
+            setup: |
+              rustup target add aarch64-unknown-linux-gnu
+              sudo apt-get install -y gcc-aarch64-linux-gnu
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
-      - name: Install Linux dependencies
+      - name: Install Linux build dependencies (x86_64)
+        if: matrix.arch == 'x86_64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf unzip
+
+      - name: Install Linux build dependencies (aarch64)
+        if: matrix.arch == 'aarch64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf unzip gcc-aarch64-linux-gnu
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Cache bun modules
         uses: actions/cache@v4
@@ -138,8 +161,12 @@ jobs:
       - name: Verify version sync
         run: bun run check:version
 
-      - name: Build Tauri app
+      # ── Build AppImage ──────────────────────────────────────────────────────
+      - name: Build Tauri app (AppImage)
         run: bun run tauri build
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: /usr/bin/gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: /usr/bin/aarch64-linux-gnu-gcc
 
       - name: Find AppImage
         id: find-appimage
@@ -148,14 +175,18 @@ jobs:
           echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
           echo "Found AppImage: $APPIMAGE"
 
-      - name: Install AWS CLI
+      # ── Build Portable Tarball ──────────────────────────────────────────────
+      - name: Find compiled binary
+        id: find-binary
         run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
-          rm -rf awscliv2.zip aws
+          BINARY=$(find src-tauri/target/${{ matrix.rust_target }}/release -name "amos-companion" -type f 2>/dev/null | head -1)
+          if [ -z "$BINARY" ]; then
+            BINARY=$(find src-tauri/target/release -name "amos-companion" -type f 2>/dev/null | head -1)
+          fi
+          echo "binary_path=$BINARY" >> $GITHUB_OUTPUT
+          echo "Binary: $BINARY"
 
-      - name: Upload to R2
+      - name: Package portable tarball
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#companion/}"
@@ -163,11 +194,76 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_amd64.AppImage" \
+
+          ARCH="${{ matrix.suffix }}"
+          TARBALL="amos-companion-${ARCH}-${VERSION}.tar.gz"
+          SCRCPY_JAR="$(find src-tauri/target -name "scrcpy-server.jar" | head -1)"
+
+          echo "Packaging ${TARBALL}..."
+          mkdir -p "dist/linux"
+
+          # Copy binary
+          cp "${{ steps.find-binary.outputs.binary_path }}" "dist/linux/amos-companion"
+          chmod +x "dist/linux/amos-companion"
+
+          # Copy scrcpy-server.jar if available
+          if [ -n "$SCRCPY_JAR" ] && [ -f "$SCRCPY_JAR" ]; then
+            cp "$SCRCPY_JAR" "dist/linux/scrcpy-server.jar"
+          fi
+
+          # Create tarball
+          tar -czf "dist/linux/${TARBALL}" -C dist/linux amos-companion${SCRCPY_JAR:+.jar:+scrcpy-server.jar}
+
+          # List contents
+          tar -tzf "dist/linux/${TARBALL}"
+          echo "TARBALL=dist/linux/${TARBALL}" >> $GITHUB_OUTPUT
+
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -o awscliv2.zip >/dev/null 2>&1
+          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+          rm -rf awscliv2.zip aws
+
+      - name: Upload AppImage to R2
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
-          echo "Uploaded: AMOS_Companion_${VERSION}_amd64.AppImage"
+          echo "Uploaded: AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
+
+      - name: Upload Portable Tarball to R2
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          aws s3 cp "${{ steps.find-binary.outputs.TARBALL }}" "s3://${{ env.R2_BUCKET }}/companion/${{ github.ref_name }}/amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read
+          echo "Uploaded: amos-companion-${{ matrix.suffix }}-${VERSION}.tar.gz"
+
+      - name: Upload Install Script to R2
+        run: |
+          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/${{ github.ref_name }}/install.sh" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read
+          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/latest/install.sh" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read
+          echo "Uploaded: install.sh"
 
       - name: Create GitHub Release
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
@@ -175,6 +271,7 @@ jobs:
         with:
           files: |
             ${{ steps.find-appimage.outputs.appimage_path }}
+            ${{ steps.find-binary.outputs.TARBALL }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           token: ${{ secrets.RELEASE_TOKEN }}
@@ -244,10 +341,89 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.RELEASE_TOKEN }}
 
+  # ── Update version manifest ───────────────────────────────────────────────────
+  update-manifest:
+    needs: [build-linux, build-windows]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install AWS CLI
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -o awscliv2.zip >/dev/null 2>&1
+          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+          rm -rf awscliv2.zip aws
+
+      - name: Generate version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Build manifest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+
+          # Build per-platform URLs
+          APPIMAGE_AMD64="https://releases.amos.moo-vpn.online/companion/AMOS_Companion_${VERSION}_amd64.AppImage"
+          APPIMAGE_ARM64="https://releases.amos.moo-vpn.online/companion/AMOS_Companion_${VERSION}_arm64.AppImage"
+          TAR_AMD64="https://releases.amos.moo-vpn.online/companion/${TAG}/amos-companion-amd64-${VERSION}.tar.gz"
+          TAR_ARM64="https://releases.amos.moo-vpn.online/companion/${TAG}/amos-companion-arm64-${VERSION}.tar.gz"
+          INSTALL_SH="https://releases.amos.moo-vpn.online/companion/${TAG}/install.sh"
+
+          cat > manifest.json << EOF
+          {
+            "latest": "${VERSION}",
+            "tag": "${TAG}",
+            "released": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "releases": {
+              "${VERSION}": {
+                "appimage": {
+                  "amd64": "${APPIMAGE_AMD64}",
+                  "arm64": "${APPIMAGE_ARM64}"
+                },
+                "tarball": {
+                  "amd64": "${TAR_AMD64}",
+                  "arm64": "${TAR_ARM64}"
+                },
+                "installScript": "${INSTALL_SH}"
+              }
+            }
+          }
+          EOF
+          cat manifest.json
+
+      - name: Upload manifest.json to R2
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          # Upload versioned manifest
+          aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/${TAG}/manifest.json" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read \
+            --content-type application/json
+
+          # Update latest manifest (always points to newest)
+          aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/latest/manifest.json" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read \
+            --content-type application/json
+
+          echo "Manifest updated for version ${{ steps.version.outputs.version }}"
+
   # Cleanup old builds - keep only last 3 versions by version number
   # Run even if some builds fail, so we don't accumulate old versions
   cleanup:
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, update-manifest]
     if: always()
     runs-on: ubuntu-latest
     steps:
