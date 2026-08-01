@@ -205,7 +205,7 @@ jobs:
 
           ARCH="${{ matrix.suffix }}"
           TARBALL="amos-companion-${ARCH}-${VERSION}.tar.gz"
-          SCRCPY_JAR="$(find src-tauri/target -name "scrcpy-server.jar" | head -1)"
+          SCRCPY_JAR="src-tauri/scrcpy-server/scrcpy-server.jar"
 
           echo "Packaging ${TARBALL}..."
           mkdir -p "dist/linux"
@@ -219,8 +219,12 @@ jobs:
             cp "$SCRCPY_JAR" "dist/linux/scrcpy-server.jar"
           fi
 
-          # Create tarball
-          tar -czf "dist/linux/${TARBALL}" -C dist/linux amos-companion${SCRCPY_JAR:+.jar:+scrcpy-server.jar}
+          # Create tarball (only include scrcpy-server.jar if it exists)
+          if [ -n "$SCRCPY_JAR" ] && [ -f "$SCRCPY_JAR" ]; then
+            tar -czf "dist/linux/${TARBALL}" -C dist/linux amos-companion scrcpy-server.jar
+          else
+            tar -czf "dist/linux/${TARBALL}" -C dist/linux amos-companion
+          fi
 
           # List contents
           tar -tzf "dist/linux/${TARBALL}"
