@@ -1439,7 +1439,9 @@ let depsInstalling = false;
 
 async function refreshDepsStatus(): Promise<void> {
 	const statusEl = document.getElementById("deps-status");
-	const btnEl = document.getElementById("btn-install-deps") as HTMLButtonElement | null;
+	const btnEl = document.getElementById(
+		"btn-install-deps",
+	) as HTMLButtonElement | null;
 	if (!statusEl) return;
 
 	try {
@@ -1471,7 +1473,9 @@ async function refreshDepsStatus(): Promise<void> {
 
 async function handleInstallDeps(): Promise<void> {
 	if (depsInstalling) return;
-	const btnEl = document.getElementById("btn-install-deps") as HTMLButtonElement | null;
+	const btnEl = document.getElementById(
+		"btn-install-deps",
+	) as HTMLButtonElement | null;
 	const statusEl = document.getElementById("deps-status");
 
 	if (btnEl) {
@@ -1479,7 +1483,10 @@ async function handleInstallDeps(): Promise<void> {
 		btnEl.textContent = "Installing...";
 	}
 	depsInstalling = true;
-	addLog("info", "Installing mirror dependencies (ADB, scrcpy, ffmpeg, Node.js, ws-scrcpy)...");
+	addLog(
+		"info",
+		"Installing mirror dependencies (ADB, scrcpy, ffmpeg, Node.js, ws-scrcpy)...",
+	);
 	if (statusEl) {
 		statusEl.textContent = "Installing...";
 		statusEl.style.color = "#3b82f6";
@@ -1520,7 +1527,10 @@ async function tryAutoInstallDeps(): Promise<void> {
 	}
 	// Not installed and not currently installing — trigger install
 	depsInstalling = true;
-	addLog("warn", "Missing dependencies — auto-installing ADB, scrcpy, ffmpeg...");
+	addLog(
+		"warn",
+		"Missing dependencies — auto-installing ADB, scrcpy, ffmpeg...",
+	);
 	try {
 		await invoke<string>("install_mirror_deps");
 		addLog("info", "Dependencies auto-installed successfully");

@@ -222,22 +222,28 @@ pub async fn try_system_install(package: &str) -> Result<(), String> {
     match os {
         OS::Linux => {
             info!("Trying system install via apt: {}", package);
-            let output = Command::new("sudo")
-                .args(["apt", "install", "-y", package])
-                .output();
+            // Try pkexec first (graphical apps), then sudo
+            for cmd in &["pkexec", "sudo"] {
+                let output = Command::new(cmd)
+                    .args(["apt", "install", "-y", package])
+                    .output();
 
-            match output {
-                Ok(out) if out.status.success() => {
-                    info!("Successfully installed {} via apt", package);
-                    Ok(())
+                match output {
+                    Ok(out) if out.status.success() => {
+                        info!("Successfully installed {} via {} apt", package, cmd);
+                        return Ok(());
+                    }
+                    Ok(out) => {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        warn!("{} apt install {} failed: {}", cmd, package, stderr);
+                        // Try next method
+                    }
+                    Err(e) => {
+                        warn!("Failed to run {} apt: {}", cmd, e);
+                    }
                 }
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    warn!("apt install {} failed: {}", package, stderr);
-                    Err(format!("apt failed: {}", stderr))
-                }
-                Err(e) => Err(format!("Failed to run apt: {}", e)),
             }
+            Err(format!("Could not install {} via apt (tried pkexec, sudo)", package))
         }
         OS::Macos => {
             info!("Trying system install via brew: {}", package);
@@ -282,7 +288,7 @@ pub async fn try_system_install(package: &str) -> Result<(), String> {
 
 // ─── Download Helper ───────────────────────────────────────────────────────────
 
-/// Download file using curl
+/// Download file using wget (better redirect following than curl for CDN URLs)
 async fn download_file(url: &str, dest: &PathBuf) -> Result<(), String> {
     info!("Downloading from: {}", url);
 
@@ -292,17 +298,33 @@ async fn download_file(url: &str, dest: &PathBuf) -> Result<(), String> {
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    // Use curl to download (more reliable than reqwest for large files)
-    let output = Command::new("curl")
-        .args(["-L", "-o", &dest.to_string_lossy(), url])
+    // Use wget for better redirect following (GitHub CDN redirects work reliably)
+    let output = Command::new("wget")
+        .args(["-q", "-O", &dest.to_string_lossy(), url])
         .output()
-        .map_err(|e| format!("Failed to run curl: {}", e))?;
+        .map_err(|e| format!("Failed to run wget: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("curl failed: {}", stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!("wget failed (exit {}): {} {}",
+            output.status.code().unwrap_or(-1), stderr, stdout));
     }
 
+    // Verify we got a real file (not HTML redirect page)
+    let file_size = std::fs::metadata(dest)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    if file_size < 1000 {
+        // Very small file — likely HTML error or redirect page
+        let content = std::fs::read_to_string(dest)
+            .unwrap_or_default();
+        if content.contains("<html") || content.contains("<!DOCTYPE") {
+            return Err(format!("Download returned HTML instead of binary ({} bytes). URL may be invalid or rate-limited.", file_size));
+        }
+    }
+
+    info!("Downloaded {} bytes to {:?}", file_size, dest);
     Ok(())
 }
 
