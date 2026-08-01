@@ -2777,8 +2777,14 @@ class ScrcpyVideoStream {
 				this._decoderErrorCount++;
 				if (this._decoderErrorCount <= ScrcpyVideoStream.MAX_DECODER_ERRORS) {
 					addLog("warn", `[SCRCPY] Decoder error: ${error}`);
-				} else if (this._decoderErrorCount === ScrcpyVideoStream.MAX_DECODER_ERRORS + 1) {
-					addLog("warn", `[SCRCPY] Decoder errors suppressed (codec not supported on this browser/Linux)`);
+				} else if (
+					this._decoderErrorCount ===
+					ScrcpyVideoStream.MAX_DECODER_ERRORS + 1
+				) {
+					addLog(
+						"warn",
+						`[SCRCPY] Decoder errors suppressed (codec not supported on this browser/Linux)`,
+					);
 				}
 			},
 		});
