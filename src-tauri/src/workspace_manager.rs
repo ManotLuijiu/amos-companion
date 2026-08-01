@@ -240,7 +240,10 @@ pub async fn get_registered_devices(
 
     let url = format!("{}/devices", api_url.trim_end_matches('/'));
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     info!("[API] GET {} with headers: X-User-ID={}, X-Workspace-ID={}", url, user_id, workspace_id);
     let response = client
         .get(&url)
@@ -283,7 +286,10 @@ pub async fn update_device_name(
         name: &'a str,
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
     info!("[API] PATCH {} with headers: X-User-ID={}, X-Workspace-ID={}, body={{name: '{}'}}", url, user_id, workspace_id, name);
     let response = client
         .patch(&url)
