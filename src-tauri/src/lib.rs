@@ -745,9 +745,9 @@ async fn get_registered_devices(
     result
 }
 
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 async fn update_device_name(
-    device_id: String,
+    deviceId: String,
     name: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -755,12 +755,12 @@ async fn update_device_name(
     let user_id = config.get_user_id().ok_or("Not logged in")?;
     let workspace_id = config.get_workspace_id().ok_or("No workspace")?;
     let api_url = config.get_api_url();
-    info!("update_device_name: device_id={}, name={}, user_id={}, workspace_id={}", device_id, name, user_id, workspace_id);
+    info!("update_device_name: deviceId={}, name={}, user_id={}, workspace_id={}", deviceId, name, user_id, workspace_id);
     if api_url.is_empty() {
         return Err("API URL not configured".to_string());
     }
     drop(config);
-    workspace_manager::update_device_name(&api_url, &user_id, &workspace_id, &device_id, &name).await
+    workspace_manager::update_device_name(&api_url, &user_id, &workspace_id, &deviceId, &name).await
 }
 
 #[tauri::command]
