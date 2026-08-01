@@ -537,6 +537,12 @@ async fn start_agent(app: AppHandle, state: tauri::State<'_, AppState>) -> Resul
     let mut config = state.config_store.lock().await;
     let api_url = config.get_api_url();
 
+    // Validate api_url is not empty
+    if api_url.trim().is_empty() {
+        error!("start_agent: api_url is empty — not signed in / configured");
+        return Err("API URL not configured — sign in first".to_string());
+    }
+
     // ─── Check if user is signed in ─────────────────────────────────────────────
     let user_id = config.get_user_id().ok_or_else(|| {
         error!("Not signed in - please sign in first");
