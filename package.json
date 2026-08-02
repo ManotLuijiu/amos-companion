@@ -1,6 +1,6 @@
 {
   "name": "amos-companion",
-  "version": "1.6.50",
+  "version": "1.6.51",
   "description": "AMOS Companion App — Connect Android devices to AMOS SaaS with one click",
   "private": true,
   "type": "module",

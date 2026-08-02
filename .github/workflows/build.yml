@@ -245,12 +245,13 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           fi
-          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage" \
+          # Upload to version folder (like .deb and tarball) for consistent structure
+          aws s3 cp "${{ steps.find-appimage.outputs.appimage_path }}" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read
           echo "Uploaded: AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
-          echo "Public URL: https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
+          echo "Public URL: https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/${VERSION}/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
 
       - name: Upload .deb package to R2
         run: |
@@ -404,15 +405,15 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
 
-          # Build per-platform URLs (R2 public bucket URL)
+          # Build per-platform URLs (R2 public bucket URL) — AppImage now in version folder
           R2_PUBLIC="https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion"
-          APPIMAGE_AMD64="${R2_PUBLIC}/AMOS_Companion_${VERSION}_amd64.AppImage"
-          APPIMAGE_ARM64="${R2_PUBLIC}/AMOS_Companion_${VERSION}_aarch64.AppImage"
+          APPIMAGE_AMD64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_amd64.AppImage"
+          APPIMAGE_ARM64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_aarch64.AppImage"
           TAR_AMD64="${R2_PUBLIC}/${VERSION}/amos-companion-amd64-${VERSION}.tar.gz"
           TAR_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion-arm64-${VERSION}.tar.gz"
           DEB_AMD64="${R2_PUBLIC}/${VERSION}/amos-companion_amd64_${VERSION}.deb"
           DEB_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion_arm64_${VERSION}.deb"
-          INSTALL_SH="${R2_PUBLIC}/latest/install.sh"
+          INSTALL_SH="${R2_PUBLIC}/${VERSION}/install.sh"
 
           cat > manifest.json << EOF
           {
@@ -507,12 +508,19 @@ jobs:
             # Delete files for old versions
             for OLD_VERSION in $TO_DELETE; do
               echo "Deleting all files for version $OLD_VERSION..."
+              # Delete flat files (AMOS_Companion_VERSION_* pattern — old structure)
               aws s3 rm s3://${{ env.R2_BUCKET }}/companion/ \
                 --endpoint-url ${{ env.R2_ENDPOINT }} \
                 --region auto \
                 --exclude "*" \
                 --include "AMOS_Companion_${OLD_VERSION}_*" \
                 --recursive
+              # Delete version folder (companion/1.6.XX/)
+              aws s3 rm s3://${{ env.R2_BUCKET }}/companion/${OLD_VERSION}/ \
+                --endpoint-url ${{ env.R2_ENDPOINT }} \
+                --region auto \
+                --recursive
+              echo "Deleted version folder and flat files for $OLD_VERSION"
             done
           else
             echo "No cleanup needed (have $VERSION_COUNT versions, keeping 3)"
