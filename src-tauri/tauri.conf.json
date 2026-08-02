@@ -1,14 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AMOS Companion",
-  "version": "1.6.64",
+  "version": "1.6.65",
   "identifier": "online.amos.companion",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "strip": true
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -51,8 +50,6 @@
         "bundleMediaFramework": false
       },
       "deb": {
-        "shortDescription": "Connect Android devices to AMOS with one click",
-        "longDescription": "AMOS Companion is a desktop application that allows you to connect your Android devices to the AMOS SaaS platform with a single click. Features include device mirroring, ADB management, and seamless integration with AMOS services.",
         "depends": [
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
@@ -61,8 +58,6 @@
         ],
         "section": "net",
         "priority": "optional",
-        "maintainer": "AMOS Team <support@amos.moo-vpn.online>",
-        "homepage": "https://amos.moo-vpn.online",
         "postInstallScript": "../scripts/deb-postinst.sh"
       }
     },
