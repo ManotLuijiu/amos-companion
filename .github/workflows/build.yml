@@ -443,9 +443,13 @@ jobs:
               > manifest.json
           else
             echo "Creating new manifest..."
-            cat << 'EOF' > manifest.json
-{"latest":"${VERSION}","tag":"${TAG}","released":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","releases":{"${VERSION}":{"appimage":{"amd64":"${APPIMAGE_AMD64}","arm64":"${APPIMAGE_ARM64}"},"deb":{"amd64":"${DEB_AMD64}","arm64":"${DEB_ARM64}"},"tarball":{"amd64":"${TAR_AMD64}","arm64":"${TAR_ARM64}"},"installScript":"${INSTALL_SH}"}}}
-EOF
+            printf '{"latest":"%s","tag":"%s","released":"%s","releases":{"%s":{"appimage":{"amd64":"%s","arm64":"%s"},"deb":{"amd64":"%s","arm64":"%s"},"tarball":{"amd64":"%s","arm64":"%s"},"installScript":"%s"}}}' \
+              "${VERSION}" "${TAG}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "${VERSION}" \
+              "${APPIMAGE_AMD64}" "${APPIMAGE_ARM64}" \
+              "${DEB_AMD64}" "${DEB_ARM64}" \
+              "${TAR_AMD64}" "${TAR_ARM64}" \
+              "${INSTALL_SH}" > manifest.json
           fi
           cat manifest.json
 
