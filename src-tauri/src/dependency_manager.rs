@@ -161,9 +161,30 @@ fn get_adb_url(os: OS) -> &'static str {
 
 // ─── Installation Status ────────────────────────────────────────────────────────
 
+/// Check if a binary exists at a specific path
+fn check_path(path: &str) -> bool {
+    PathBuf::from(path).exists()
+}
+
 /// Check if Node.js is installed (bundled or system)
 pub fn is_nodejs_installed() -> bool {
-    // Check system node first (nvm, fnm, apt, brew, etc.)
+    // Check known macOS paths first (GUI apps may not have terminal PATH)
+    if cfg!(target_os = "macos") {
+        if check_path("/usr/local/bin/node") || check_path("/opt/homebrew/bin/node") || check_path("/usr/bin/node") {
+            info!("Found Node.js at standard macOS path");
+            return true;
+        }
+        // Check nvm managed node (common location)
+        if let Ok(home) = std::env::var("HOME") {
+            let nvm_path = format!("{}/.nvm/versions/node/v24.18.0/bin/node", home);
+            if check_path(&nvm_path) {
+                info!("Found Node.js at nvm path: {}", nvm_path);
+                return true;
+            }
+        }
+    }
+
+    // Check system node via which (works on Linux/Windows)
     if let Ok(output) = Command::new("which").arg("node").output() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() && PathBuf::from(&path).exists() {
@@ -176,6 +197,13 @@ pub fn is_nodejs_installed() -> bool {
 
 /// Check if scrcpy is installed (either system or bundled)
 pub fn is_scrcpy_installed() -> bool {
+    // Check known macOS paths first
+    if cfg!(target_os = "macos")
+        && (check_path("/usr/local/bin/scrcpy") || check_path("/opt/homebrew/bin/scrcpy")) {
+            info!("Found scrcpy at standard macOS path");
+            return true;
+        }
+
     if let Ok(output) = Command::new("which").arg("scrcpy").output() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() && PathBuf::from(&path).exists() {
@@ -188,6 +216,13 @@ pub fn is_scrcpy_installed() -> bool {
 
 /// Check if ffmpeg is installed (either system or bundled)
 pub fn is_ffmpeg_installed() -> bool {
+    // Check known macOS paths first
+    if cfg!(target_os = "macos")
+        && (check_path("/usr/local/bin/ffmpeg") || check_path("/opt/homebrew/bin/ffmpeg") || check_path("/usr/bin/ffmpeg")) {
+            info!("Found ffmpeg at standard macOS path");
+            return true;
+        }
+
     if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() && PathBuf::from(&path).exists() {
@@ -206,6 +241,13 @@ pub fn is_ws_scrcpy_installed() -> bool {
 
 /// Check if ADB is installed (either system or bundled)
 pub fn is_adb_installed() -> bool {
+    // Check known macOS paths first
+    if cfg!(target_os = "macos")
+        && (check_path("/usr/local/bin/adb") || check_path("/opt/homebrew/bin/adb") || check_path("/usr/bin/adb")) {
+            info!("Found ADB at standard macOS path");
+            return true;
+        }
+
     if let Ok(output) = Command::new("which").arg("adb").output() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() && PathBuf::from(&path).exists() {
