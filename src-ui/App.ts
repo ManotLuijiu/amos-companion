@@ -371,10 +371,13 @@ function buildLoginSection(): HTMLElement {
 	googleBtn.className = "google-wrapper";
 	const googleLogo = document.createElement("img");
 	googleLogo.src = "google-logo-dark.png";
-	googleLogo.alt = "เข้าสู่ระบบด้วย Google";
+	googleLogo.alt = "Google";
 	googleLogo.className = "google-logo";
 	googleLogo.setAttribute("loading", "lazy");
 	googleBtn.append(googleLogo);
+	const googleText = document.createElement("span");
+	googleText.textContent = "เข้าสู่ระบบด้วย Google";
+	googleBtn.append(googleText);
 	googleBtn.addEventListener("click", handleGoogleLogin);
 
 	// Email/Password form

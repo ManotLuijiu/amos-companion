@@ -1326,11 +1326,12 @@ body {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	gap: 12px;
 	width: 100%;
-	padding: 0;
-	border: none;
+	padding: 10px 16px;
+	border: 1px solid var(--border-color);
 	border-radius: var(--radius-md);
-	background: transparent;
+	background: var(--bg-secondary);
 	cursor: pointer;
 	transition: opacity 0.2s;
 }
@@ -1347,7 +1348,7 @@ body {
  * apply effects to the image.
  */
 .google-logo {
-	height: 32px; /* h-8 in Tailwind */
+	height: 24px; /* Smaller with text next to it */
 	width: auto;
 	display: block;
 }
