@@ -521,7 +521,7 @@ async function handleGoogleLogin(): Promise<void> {
 			logo.src = "google-logo-dark.png";
 			logo.alt = "เข้าสู่ระบบด้วย Google";
 			logo.className = "google-logo";
-		googleBtn.appendChild(logo);
+			googleBtn.appendChild(logo);
 		}
 	}
 }
