@@ -343,10 +343,10 @@ async fn sign_in_oauth(
         // Set a timeout so we don't hang forever
         listener.set_nonblocking(true).ok();
 
-        // Accept connection with timeout
+        // Accept connection with timeout - match OAuth 120s wait window
         let mut attempts = 0;
-        while attempts < 200 {
-            // 20 seconds timeout
+        while attempts < 1200 {
+            // 120 seconds timeout (matches recv_timeout in caller)
             thread::sleep(Duration::from_millis(100));
             attempts += 1;
 
