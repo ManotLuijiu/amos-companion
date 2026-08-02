@@ -491,48 +491,54 @@ jobs:
         run: |
           echo "=== Cleaning up R2 builds - keeping 3 newest versions ==="
 
-          # Get all files in the companion folder
-          FILES=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
+          # Get all items in companion folder (files and folders)
+          ALL_ITEMS=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | awk '{print $4}')
 
-          # Extract unique versions from filenames
-          # Format: AMOS_Companion_VERSION_PLATFORM.EXT
-          # Examples: AMOS_Companion_1.0.9_aarch64.dmg, AMOS_Companion_1.0.10_amd64.AppImage
-          VERSIONS=$(echo "$FILES" | \
+          # 1. Extract versions from flat filenames: AMOS_Companion_1.6.50_amd64.dmg
+          FILE_VERSIONS=$(echo "$ALL_ITEMS" | \
             sed -E 's/AMOS_Companion_([0-9]+\.[0-9]+\.[0-9]+)_.*/\1/' | \
-            sort -Vu 2>/dev/null || sort -u)
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
 
-          # Count versions
-          VERSION_COUNT=$(echo "$VERSIONS" | grep -c '.')
-          echo "Found $VERSION_COUNT unique versions"
+          # 2. Extract versions from version folders: 1.6.50/
+          FOLDER_VERSIONS=$(echo "$ALL_ITEMS" | \
+            sed -E 's|^([0-9]+\.[0-9]+\.[0-9]+)/?$|\1|' | \
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
+
+          # Combine and get all unique versions
+          ALL_VERSIONS=$(echo -e "$FILE_VERSIONS\n$FOLDER_VERSIONS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
+
+          VERSION_COUNT=$(echo "$ALL_VERSIONS" | grep -c '.')
+          echo "Found $VERSION_COUNT unique versions from files and folders:"
+          echo "$ALL_VERSIONS"
 
           # Get versions to delete (all except top 3)
           if [ "$VERSION_COUNT" -gt 3 ]; then
             # Keep top 3 versions (newest)
-            TO_KEEP=$(echo "$VERSIONS" | tail -n 3)
-            TO_DELETE=$(echo "$VERSIONS" | head -n -3)
-            
+            TO_KEEP=$(echo "$ALL_VERSIONS" | tail -n 3)
+            TO_DELETE=$(echo "$ALL_VERSIONS" | head -n -3)
+
             echo "Keeping versions: $TO_KEEP"
             echo "Deleting versions: $TO_DELETE"
-            
-            # Delete files for old versions
+
+            # Delete files and folders for old versions
             for OLD_VERSION in $TO_DELETE; do
-              echo "Deleting all files for version $OLD_VERSION..."
-              # Delete flat files (AMOS_Companion_VERSION_* pattern — old structure)
+              echo "Deleting version $OLD_VERSION..."
+              # Delete flat files matching this version
               aws s3 rm s3://${{ env.R2_BUCKET }}/companion/ \
                 --endpoint-url ${{ env.R2_ENDPOINT }} \
                 --region auto \
                 --exclude "*" \
                 --include "AMOS_Companion_${OLD_VERSION}_*" \
                 --recursive
-              # Delete version folder (companion/1.6.XX/)
+              # Delete version folder
               aws s3 rm s3://${{ env.R2_BUCKET }}/companion/${OLD_VERSION}/ \
                 --endpoint-url ${{ env.R2_ENDPOINT }} \
                 --region auto \
                 --recursive
-              echo "Deleted version folder and flat files for $OLD_VERSION"
+              echo "Deleted $OLD_VERSION"
             done
           else
             echo "No cleanup needed (have $VERSION_COUNT versions, keeping 3)"
@@ -540,8 +546,8 @@ jobs:
 
           echo "=== Cleanup complete ==="
 
-          # List remaining files
-          echo "Remaining files:"
+          # List remaining
+          echo "Remaining items:"
           aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto
