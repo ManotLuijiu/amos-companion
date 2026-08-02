@@ -444,7 +444,7 @@ function buildLoginSection(): HTMLElement {
 	// Sign-up link
 	const signUpLink = document.createElement("p");
 	signUpLink.className = "sign-up-link";
-	signUpLink.innerHTML = `หากยังไม่มีบัญชี กรุณาลงทะเบียนผู้ใช้งานที่ <a href="https://app.amos.moo-vpn.online/sign-up" target="_blank">https://app.amos.moo-vpn.online/sign-up</a>`;
+	signUpLink.innerHTML = `หากยังไม่มีบัญชี กรุณาลงทะเบียนผู้ใช้งานที่<br><a href="https://app.amos.moo-vpn.online/sign-up" target="_blank">https://app.amos.moo-vpn.online/sign-up</a>`;
 
 	form.append(
 		emailLabel,
