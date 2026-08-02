@@ -402,6 +402,9 @@ jobs:
 
       - name: Build manifest.json
         run: |
+          # Install jq for JSON manipulation
+          sudo apt-get update && sudo apt-get install -y jq
+
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
 
@@ -415,30 +418,56 @@ jobs:
           DEB_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion_arm64_${VERSION}.deb"
           INSTALL_SH="${R2_PUBLIC}/${VERSION}/install.sh"
 
-          cat > manifest.json << EOF
-          {
-            "latest": "${VERSION}",
-            "tag": "${TAG}",
-            "released": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "releases": {
-              "${VERSION}": {
-                "appimage": {
-                  "amd64": "${APPIMAGE_AMD64}",
-                  "arm64": "${APPIMAGE_ARM64}"
-                },
-                "deb": {
-                  "amd64": "${DEB_AMD64}",
-                  "arm64": "${DEB_ARM64}"
-                },
-                "tarball": {
-                  "amd64": "${TAR_AMD64}",
-                  "arm64": "${TAR_ARM64}"
-                },
-                "installScript": "${INSTALL_SH}"
+          # Download existing manifest to merge (ignore error if not exists)
+          if aws s3 cp "s3://${{ env.R2_BUCKET }}/companion/latest/manifest.json" existing_manifest.json \
+             --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto 2>/dev/null; then
+            echo "Merging with existing manifest..."
+            # Use jq to merge new version into existing manifest
+            # Add new version's data while keeping existing versions
+            cat existing_manifest.json | \
+              jq --arg v "${VERSION}" \
+                 --arg tag "${TAG}" \
+                 --arg amd64_app "${APPIMAGE_AMD64}" \
+                 --arg arm64_app "${APPIMAGE_ARM64}" \
+                 --arg amd64_tar "${TAR_AMD64}" \
+                 --arg arm64_tar "${TAR_ARM64}" \
+                 --arg amd64_deb "${DEB_AMD64}" \
+                 --arg arm64_deb "${DEB_ARM64}" \
+                 --arg inst_sh "${INSTALL_SH}" \
+                 '.releases[$v] = {
+                   "appimage": { "amd64": $amd64_app, "arm64": $arm64_app },
+                   "tarball": { "amd64": $amd64_tar, "arm64": $arm64_tar },
+                   "deb": { "amd64": $amd64_deb, "arm64": $arm64_deb },
+                   "installScript": $inst_sh
+                 } | .latest = $v | .tag = $tag | .released = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+              > manifest.json
+          else
+            echo "Creating new manifest..."
+            cat > manifest.json << EOF
+            {
+              "latest": "${VERSION}",
+              "tag": "${TAG}",
+              "released": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "releases": {
+                "${VERSION}": {
+                  "appimage": {
+                    "amd64": "${APPIMAGE_AMD64}",
+                    "arm64": "${APPIMAGE_ARM64}"
+                  },
+                  "deb": {
+                    "amd64": "${DEB_AMD64}",
+                    "arm64": "${DEB_ARM64}"
+                  },
+                  "tarball": {
+                    "amd64": "${TAR_AMD64}",
+                    "arm64": "${TAR_ARM64}"
+                  },
+                  "installScript": "${INSTALL_SH}"
+                }
               }
             }
-          }
-          EOF
+            EOF
+          fi
           cat manifest.json
 
       - name: Upload manifest.json to R2
