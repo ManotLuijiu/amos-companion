@@ -492,23 +492,34 @@ jobs:
           echo "=== Cleaning up R2 builds - keeping 3 newest versions ==="
 
           # Get all items in companion folder (files and folders)
+          # aws s3 ls returns: DATE TIME SIZE NAME
           ALL_ITEMS=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
             | awk '{print $4}')
 
+          echo "Raw items:"
+          echo "$ALL_ITEMS"
+
           # 1. Extract versions from flat filenames: AMOS_Companion_1.6.50_amd64.dmg
           FILE_VERSIONS=$(echo "$ALL_ITEMS" | \
-            sed -E 's/AMOS_Companion_([0-9]+\.[0-9]+\.[0-9]+)_.*/\1/' | \
-            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
+            grep -oE 'AMOS_Companion_[0-9]+\.[0-9]+\.[0-9]+' | \
+            sed -E 's/AMOS_Companion_//' | \
+            sort -Vu)
 
-          # 2. Extract versions from version folders: 1.6.50/
+          # 2. Extract versions from version folders: 1.6.50/ or 1.6.50
           FOLDER_VERSIONS=$(echo "$ALL_ITEMS" | \
-            sed -E 's|^([0-9]+\.[0-9]+\.[0-9]+)/?$|\1|' | \
-            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
+            grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | \
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
+            sort -Vu)
+
+          echo "File versions: $FILE_VERSIONS"
+          echo "Folder versions: $FOLDER_VERSIONS"
 
           # Combine and get all unique versions
-          ALL_VERSIONS=$(echo -e "$FILE_VERSIONS\n$FOLDER_VERSIONS" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -Vu)
+          ALL_VERSIONS=$(echo -e "$FILE_VERSIONS\n$FOLDER_VERSIONS" | \
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
+            sort -Vu | uniq)
 
           VERSION_COUNT=$(echo "$ALL_VERSIONS" | grep -c '.')
           echo "Found $VERSION_COUNT unique versions from files and folders:"
