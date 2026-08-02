@@ -1301,7 +1301,7 @@ body {
  * apply effects to the image.
  */
 .google-logo {
-	height: 36px;
+	height: 32px; /* h-8 in Tailwind */
 	width: auto;
 	display: block;
 }

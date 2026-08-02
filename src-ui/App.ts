@@ -366,15 +366,12 @@ function buildLoginSection(): HTMLElement {
 	divider.appendChild(dividerText);
 
 	// Google OAuth button
-	// Uses the official Google wordmark downloaded from Google's brand
-	// site (companion/src-ui/public/google-sign-in.png). Per Google's brand
-	// guidelines we do not modify the asset. The wordmark is displayed in
-	// its intended proportions and the clickable area triggers OAuth.
-	const googleBtn = document.createElement("div");
+	// Uses the same Google logo from AMOS frontend (dark theme)
+	const googleBtn = document.createElement("button");
 	googleBtn.className = "google-wrapper";
 	const googleLogo = document.createElement("img");
-	googleLogo.src = "google-sign-in.png";
-	googleLogo.alt = "Google";
+	googleLogo.src = "google-logo-dark.png";
+	googleLogo.alt = "เข้าสู่ระบบด้วย Google";
 	googleLogo.className = "google-logo";
 	googleLogo.setAttribute("loading", "lazy");
 	googleBtn.append(googleLogo);
@@ -461,11 +458,11 @@ async function handleGoogleLogin(): Promise<void> {
 			// Clear and rebuild with logo + loading text (safe - no user input)
 			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
 			const logo = document.createElement("img");
-			logo.src = "google-sign-in.png";
-			logo.alt = "Google";
+			logo.src = "google-logo-dark.png";
+			logo.alt = "เข้าสู่ระบบด้วย Google";
 			logo.className = "google-logo";
 			const text = document.createElement("span");
-			text.textContent = "Opening browser...";
+			text.textContent = "กำลังเปิดเบราว์เซอร์...";
 			text.style.marginLeft = "8px";
 			googleBtn.append(logo, text);
 		}
@@ -492,13 +489,12 @@ async function handleGoogleLogin(): Promise<void> {
 		}
 		// Reset button to show logo only
 		if (googleBtn) {
-			googleBtn.disabled = false;
-			while (googleBtn.firstChild) googleBtn.removeChild(googleBtn.firstChild);
+			// Reset button to show logo only
 			const logo = document.createElement("img");
-			logo.src = "google-sign-in.png";
-			logo.alt = "Google";
+			logo.src = "google-logo-dark.png";
+			logo.alt = "เข้าสู่ระบบด้วย Google";
 			logo.className = "google-logo";
-			googleBtn.appendChild(logo);
+		googleBtn.appendChild(logo);
 		}
 	}
 }
