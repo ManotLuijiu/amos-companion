@@ -492,11 +492,14 @@ jobs:
           echo "=== Cleaning up R2 builds - keeping 3 newest versions ==="
 
           # Get all items in companion folder (files and folders)
-          # aws s3 ls returns: DATE TIME SIZE NAME
+          # aws s3 ls returns:
+          #   Files: DATE TIME SIZE NAME (4 columns)
+          #   Folders: PRE NAME (2 columns)
+          # Use $NF to get the last column (NAME) in both cases
           ALL_ITEMS=$(aws s3 ls s3://${{ env.R2_BUCKET }}/companion/ \
             --endpoint-url ${{ env.R2_ENDPOINT }} \
             --region auto \
-            | awk '{print $4}')
+            | awk '{print $NF}')
 
           echo "Raw items:"
           echo "$ALL_ITEMS"
