@@ -443,7 +443,9 @@ jobs:
               > manifest.json
           else
             echo "Creating new manifest..."
-            printf '%s\n' '{"latest":"'"${VERSION}"'"',' '"tag":"'"${TAG}"'"',' '"released":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"',' '"releases":{' '"'"${VERSION}"'":{' '"appimage":{' '"amd64":"'"${APPIMAGE_AMD64}"'"',' '"arm64":"'"${APPIMAGE_ARM64}"'" },' '"deb":{' '"amd64":"'"${DEB_AMD64}"'"',' '"arm64":"'"${DEB_ARM64}"'" },' '"tarball":{' '"amd64":"'"${TAR_AMD64}"'"',' '"arm64":"'"${TAR_ARM64}"'" },' '"installScript":"'"${INSTALL_SH}"'" }}}' > manifest.json
+            cat > manifest.json << 'MANIFEST_EOF'
+{"latest":"${VERSION}","tag":"${TAG}","released":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","releases":{"${VERSION}":{"appimage":{"amd64":"${APPIMAGE_AMD64}","arm64":"${APPIMAGE_ARM64}"},"deb":{"amd64":"${DEB_AMD64}","arm64":"${DEB_ARM64}"},"tarball":{"amd64":"${TAR_AMD64}","arm64":"${TAR_ARM64}"},"installScript":"${INSTALL_SH}"}}}
+MANIFEST_EOF
           fi
           cat manifest.json
 
