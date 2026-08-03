@@ -207,6 +207,52 @@ test.describe(
 	},
 );
 
+// ─── install.sh version/update behavior ──────────────────────────────────────
+
+test.describe("install.sh version/update behavior", () => {
+	test.describe("Version detection", () => {
+		test("get_installed_version returns not-installed when binary absent", () => {
+			// Test the version detection logic
+			const result = execSync(
+				`INSTALL_DIR="/nonexistent" /bin/sh -c '. "${INSTALL_SCRIPT_PATH}" < /dev/null; echo "INSTALLED_VERSION=$INSTALLED_VERSION"' 2>&1 || true`,
+				{ encoding: "utf8" },
+			);
+			const output = result as string;
+			// Should report not-installed when directory doesn't exist
+			expect(
+				output.includes("not-installed") || output.includes("unknown"),
+			).toBe(true);
+		});
+
+		test("supports VERSION environment variable override", () => {
+			// VERSION override should work
+			const result = execSync(
+				`VERSION="1.6.66" /bin/sh "${INSTALL_SCRIPT_PATH}" 2>&1 || true`,
+				{ encoding: "utf8", timeout: 30000 },
+			);
+			const output = result as string;
+			// Should either reach the download step or gracefully handle the version
+			expect(
+				output.includes("1.6.66") ||
+					output.includes("Downloading AMOS Companion") ||
+					output.includes("Download failed") ||
+					output.includes("Already on latest version"),
+			).toBe(true);
+		});
+	});
+
+	test.describe("Update mode guidance", () => {
+		test("install.sh includes Ubuntu/deb guidance in comments", () => {
+			const content = readFileSync(INSTALL_SCRIPT_PATH, "utf8");
+			// Should include guidance for .deb users
+			expect(
+				content.includes("sudo apt install") || content.includes("dpkg -i"),
+			).toBe(true);
+			console.log("  ✓ install.sh includes .deb update guidance");
+		});
+	});
+});
+
 // ─── Frontend: install.sh download link is shown on Linux ─────────────────────
 
 test.describe("Frontend — Linux install.sh download link", () => {

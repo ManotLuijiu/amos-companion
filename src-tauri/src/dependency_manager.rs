@@ -168,19 +168,28 @@ fn check_path(path: &str) -> bool {
 
 /// Check if Node.js is installed (bundled or system)
 pub fn is_nodejs_installed() -> bool {
-    // Check known macOS paths first (GUI apps may not have terminal PATH)
-    if cfg!(target_os = "macos") {
-        if check_path("/usr/local/bin/node") || check_path("/opt/homebrew/bin/node") || check_path("/usr/bin/node") {
-            info!("Found Node.js at standard macOS path");
-            return true;
-        }
-        // Check nvm managed node (common location)
-        if let Ok(home) = std::env::var("HOME") {
-            let nvm_path = format!("{}/.nvm/versions/node/v24.18.0/bin/node", home);
+    // Check common system paths first
+    if check_path("/usr/local/bin/node") || check_path("/usr/bin/node") || check_path("/opt/homebrew/bin/node") {
+        info!("Found Node.js at standard system path");
+        return true;
+    }
+
+    // Check nvm managed nodes (common on Linux and macOS)
+    if let Ok(home) = std::env::var("HOME") {
+        // Check common nvm version paths
+        let nvm_versions = ["v24.18.0", "v24.18.1", "v22.0.0", "v20.0.0", "v18.0.0"];
+        for version in &nvm_versions {
+            let nvm_path = format!("{}/.nvm/versions/node/{}/bin/node", home, version);
             if check_path(&nvm_path) {
                 info!("Found Node.js at nvm path: {}", nvm_path);
                 return true;
             }
+        }
+        // Also check if ~/.local/bin/node exists (other node managers)
+        let local_bin_node = format!("{}/.local/bin/node", home);
+        if check_path(&local_bin_node) {
+            info!("Found Node.js at local bin path: {}", local_bin_node);
+            return true;
         }
     }
 
@@ -192,6 +201,8 @@ pub fn is_nodejs_installed() -> bool {
             return true;
         }
     }
+
+    // Check bundled node
     get_nodejs_bin().exists()
 }
 

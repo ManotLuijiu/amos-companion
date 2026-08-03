@@ -97,7 +97,7 @@ let screenshotRefreshInterval: ReturnType<typeof setInterval> | null = null;
 let scrcpyEnabled = false;
 let scrcpyAvailable = false;
 let scrcpyServerStream: ScrcpyVideoStream | null = null;
-let _deviceAgentInstalled = false;
+let _deviceAgentInstalled = false; // eslint-disable-line @typescript-eslint/no-unused-vars
 const _relayEnabled = false; // eslint-disable-line @typescript-eslint/no-unused-vars
 const _relayStatus: "disconnected" | "connecting" | "connected" | "error" =
 	"disconnected"; // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -431,6 +431,32 @@ function buildLoginSection(): HTMLElement {
 
 	passwordWrapper.append(passwordInput, togglePassword);
 
+	// Remember Me checkbox
+	const rememberWrapper = document.createElement("div");
+	rememberWrapper.className = "remember-wrapper";
+	rememberWrapper.style.display = "flex";
+	rememberWrapper.style.alignItems = "center";
+	rememberWrapper.style.marginBottom = "12px";
+	rememberWrapper.style.gap = "8px";
+
+	const rememberCheckbox = document.createElement("input");
+	rememberCheckbox.type = "checkbox";
+	rememberCheckbox.id = "login-remember";
+	rememberCheckbox.style.width = "16px";
+	rememberCheckbox.style.height = "16px";
+	rememberCheckbox.style.cursor = "pointer";
+	rememberCheckbox.style.margin = "0";
+
+	const rememberLabel = document.createElement("label");
+	rememberLabel.htmlFor = "login-remember";
+	rememberLabel.textContent = "Remember me";
+	rememberLabel.style.cursor = "pointer";
+	rememberLabel.style.fontSize = "13px";
+	rememberLabel.style.color = "var(--text-secondary)";
+
+	rememberWrapper.appendChild(rememberCheckbox);
+	rememberWrapper.appendChild(rememberLabel);
+
 	const errorDiv = document.createElement("div");
 	errorDiv.id = "login-error";
 	errorDiv.className = "login-error";
@@ -451,6 +477,7 @@ function buildLoginSection(): HTMLElement {
 		emailInput,
 		passwordLabel,
 		passwordWrapper,
+		rememberWrapper,
 		errorDiv,
 		submitBtn,
 		signUpLink,
@@ -467,6 +494,14 @@ function buildLoginSection(): HTMLElement {
 	const savedApiUrl = localStorage.getItem("login-api-url");
 	if (savedApiUrl) {
 		apiUrlInput.value = savedApiUrl;
+	}
+
+	// Load saved email and remember preference
+	const savedRemember = localStorage.getItem("login-remember");
+	const savedEmail = localStorage.getItem("login-email");
+	if (savedRemember === "true" && savedEmail) {
+		rememberCheckbox.checked = true;
+		emailInput.value = savedEmail;
 	}
 
 	section.append(container);
@@ -562,6 +597,19 @@ async function handleLogin(event: Event): Promise<void> {
 		const loginSection = document.getElementById("login-section");
 		const mainContent = document.getElementById("main-content");
 		if (loginSection) loginSection.style.display = "none";
+		if (mainContent) mainContent.style.display = "flex";
+
+		// Handle Remember Me
+		const rememberCheckbox = document.getElementById(
+			"login-remember",
+		) as HTMLInputElement;
+		if (rememberCheckbox?.checked) {
+			localStorage.setItem("login-remember", "true");
+			localStorage.setItem("login-email", email);
+		} else {
+			localStorage.setItem("login-remember", "false");
+			localStorage.removeItem("login-email");
+		}
 
 		addLog("info", `Signed in as ${email}`);
 
@@ -1251,8 +1299,20 @@ function createMirrorCard(): HTMLElement {
 	secureNotice.className = "mirror-secure-notice";
 	secureNotice.id = "mirror-secure-notice";
 	secureNotice.style.display = "none";
-	secureNotice.textContent =
-		"This secure screen may appear blank. Enter PIN directly on device.";
+	secureNotice.innerHTML = `
+		<div style="padding: 8px; text-align: center;">
+			<div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">
+				🔒 Secure Screen Detected
+			</div>
+			<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+				Screen is locked. For best experience:
+			</div>
+			<ul style="text-align: left; font-size: 11px; color: var(--text-secondary); margin: 0 0 8px 0; padding-left: 20px;">
+				<li>Unlock your device, or</li>
+				<li>Disable PIN/pattern lock in Settings → Security</li>
+			</ul>
+		</div>
+	`;
 	screenContainer.append(
 		placeholder,
 		loading,
@@ -1339,6 +1399,8 @@ function createLogCard(): HTMLElement {
 		const option = document.createElement("option");
 		option.value = value;
 		option.textContent = label;
+		option.style.color = "var(--text-primary)";
+		option.style.background = "var(--bg-tertiary)";
 		filter.appendChild(option);
 	});
 	const exportBtn = document.createElement("button");
@@ -1614,6 +1676,7 @@ let refreshFrameCount = 0; // Counter for black screen detection
 let consecutiveBlackFrames = 0; // Track sustained black to avoid false positives
 const MAX_SCREENSHOT_ERRORS = 3;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function _refreshScreenshot(): Promise<void> {
 	if (!selectedDevice) return;
 	const loading = document.getElementById("screen-loading");
@@ -2235,7 +2298,9 @@ function refreshDeviceList(devices: DeviceInfo[]): void {
 			// Device click - select device
 			li.onclick = (e) => {
 				const target = e.target as HTMLElement;
-				if (target.classList.contains("btn-mirror")) {
+				// Use closest() to handle clicks on SVG icons inside the button
+				const btnMirror = target.closest(".btn-mirror");
+				if (btnMirror) {
 					e.stopPropagation();
 					toggleDeviceMirror(device);
 				} else {
@@ -2536,7 +2601,7 @@ class VideoStream {
 		});
 
 		this.decoder.configure({
-			codec: "avc1.64001f", // H.264 High Profile Level 3.1
+			codec: "vp8", // VP8 - universally supported by all browsers including Linux
 			codedWidth: this.width,
 			codedHeight: this.height,
 		});
@@ -2816,7 +2881,7 @@ class ScrcpyVideoStream {
 		});
 
 		this.decoder.configure({
-			codec: "avc1.64001f",
+			codec: "vp8", // MUST match video_codec=vp8 in src-tauri/src/scrcpy_server.rs
 			codedWidth: this.width,
 			codedHeight: this.height,
 		});

@@ -4,6 +4,7 @@ mod config_store;
 mod dependency_manager;
 mod device_agent_installer;
 mod device_controller;
+mod install_mode;
 mod scrcpy;
 mod scrcpy_server;
 mod video_stream;
@@ -206,16 +207,32 @@ async fn sign_in(
     // Sign in via better-auth API
     let (user_id, user_email) = wm::sign_in(&api_url, &email, &password).await?;
 
-    // Save to config
-    let mut config = state.config_store.lock().await;
-    config.set_api_url(api_url.clone());
-    config.set_user_id(Some(user_id.clone()));
-    config.set_user_email(Some(user_email.clone()));
-    config
-        .save()
-        .map_err(|e| format!("Failed to save config: {}", e))?;
+    // Get or create default workspace
+    match wm::ensure_workspace_exists(&api_url, &user_id).await {
+        Ok(ws_id) => {
+            let mut config = state.config_store.lock().await;
+            config.set_api_url(api_url.clone());
+            config.set_user_id(Some(user_id.clone()));
+            config.set_user_email(Some(user_email.clone()));
+            config.set_workspace_id(Some(ws_id.clone()));
+            config
+                .save()
+                .map_err(|e| format!("Failed to save config: {}", e))?;
+            info!("Sign in successful: {} ({}) with workspace {}", user_email, user_id, ws_id);
+        }
+        Err(e) => {
+            // Save without workspace - workspace will be created later
+            let mut config = state.config_store.lock().await;
+            config.set_api_url(api_url.clone());
+            config.set_user_id(Some(user_id.clone()));
+            config.set_user_email(Some(user_email.clone()));
+            config
+                .save()
+                .map_err(|e| format!("Failed to save config: {}", e))?;
+            info!("Sign in successful: {} ({}), workspace error: {}", user_email, user_id, e);
+        }
+    }
 
-    info!("Sign in successful: {} ({})", user_email, user_id);
     Ok(())
 }
 
@@ -310,6 +327,11 @@ async fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to open URL: {}", e))?;
 
     Ok(())
+}
+
+#[tauri::command]
+fn get_install_mode() -> install_mode::InstallMode {
+    install_mode::detect_install_mode()
 }
 
 #[tauri::command]
@@ -1173,6 +1195,7 @@ pub fn run() {
             start_ws_scrcpy_server,
             stop_ws_scrcpy_server,
             get_ws_scrcpy_status,
+            get_install_mode,
         ])
         .setup(|app| {
             info!("Setting up system tray...");

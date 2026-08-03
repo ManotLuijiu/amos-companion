@@ -6,6 +6,15 @@
 #   VERSION=x.y.z   Install a specific version (default: latest)
 #   INSTALL_DIR=    Override install directory (default: ~/.local/bin)
 #   SYSTEM_WIDE=1   Install to /usr/local/bin (requires sudo)
+#
+# ─── Ubuntu/Debian .deb users ─────────────────────────────────────────────────
+# If you installed via .deb and need to update:
+#   sudo apt install ./amos-companion_<arch>_<version>.deb
+#
+# If App Center or double-click doesn't work, use terminal:
+#   sudo dpkg -i ./amos-companion_<arch>_<version>.deb
+#   sudo apt -f install  # Fix any dependency issues
+# ────────────────────────────────────────────────────────────────────────────
 
 set -e
 
@@ -32,7 +41,7 @@ FORCE="${FORCE:-0}"
 detect_arch() {
 	ARCH="$(uname -m)"
 	case "$ARCH" in
-	x86_64) echo "x86_64" ;;
+	x86_64) echo "amd64" ;;
 	aarch64 | arm64) echo "aarch64" ;;
 	*) echo "" ;;
 	esac
@@ -45,7 +54,23 @@ if [ -z "$ARCH" ]; then
 	exit 1
 fi
 
-# ── Detect installed version ───────────────────────────────────────────────────
+# ── Remove existing .deb package if installed ───────────────────────────────────
+remove_deb_if_exists() {
+	if command -v dpkg-query >/dev/null 2>&1; then
+		if dpkg-query -W -f='${Status}' amos-companion 2>/dev/null | grep -q "installed"; then
+			warn "Found existing .deb installation (amos-companion)"
+			warn "Removing .deb package to avoid conflicts..."
+			if command -v sudo >/dev/null 2>&1; then
+				sudo dpkg -r amos-companion 2>/dev/null || true
+			else
+				dpkg -r amos-companion 2>/dev/null || true
+			fi
+			ok ".deb package removed"
+		fi
+	fi
+}
+
+# ── Detect installed version ────────────────────────────────────────────────────
 get_installed_version() {
 	if [ -x "${INSTALL_DIR}/amos-companion" ]; then
 		"${INSTALL_DIR}/amos-companion" --version 2>/dev/null |
@@ -86,6 +111,9 @@ _INSTALL_SCRIPT_URL="${RELEASE_BASE}/${RESOLVED_VERSION}/install.sh"
 echo ""
 info "${BOLD}AMOS Companion${RESET} ${YELLOW}v${RESOLVED_VERSION}${RESET} for ${BOLD}${ARCH}${RESET}"
 echo ""
+
+# Remove any existing .deb package to avoid conflicts
+remove_deb_if_exists
 
 if [ "$INSTALLED_VERSION" != "not-installed" ]; then
 	if [ "$INSTALLED_VERSION" = "$RESOLVED_VERSION" ] && [ "$FORCE" = "0" ]; then
@@ -151,7 +179,7 @@ if [ "$SYSTEM_WIDE" = "1" ]; then
 	rm -rf "$EXTRACT_DIR"
 else
 	mkdir -p "$INSTALL_DIR"
-	tar -xzf "$TARBALL_PATH" -C "$INSTALL_DIR" --strip-components=1
+	tar -xzf "$TARBALL_PATH" -C "$INSTALL_DIR"
 fi
 
 rm -f "$TARBALL_PATH"
@@ -165,13 +193,13 @@ install_desktop() {
 
 	mkdir -p "$DESKTOP_DIR" "$ICON_DIR" "$AUTOSTART_DIR"
 
-	# .desktop file
-	cat >"${DESKTOP_DIR}/amos-companion.desktop" <<'DESKTOP_EOF'
+	# .desktop file (use absolute icon path)
+	cat >"${DESKTOP_DIR}/amos-companion.desktop" <<DESKTOP_EOF
 [Desktop Entry]
 Name=AMOS Companion
 Comment=Android device mirror & control for AMOS
-Exec=amos-companion
-Icon=amos-companion
+Exec=${INSTALL_DIR}/amos-companion
+Icon=${HOME}/.local/share/icons/hicolor/256x256/apps/amos-companion.png
 Terminal=false
 Type=Application
 Categories=Utility;Network;
@@ -183,6 +211,14 @@ DESKTOP_EOF
 	chmod 644 "${DESKTOP_DIR}/amos-companion.desktop"
 	ok "Desktop entry created"
 
+	# Download icon
+	ICON_URL="${RELEASE_BASE}/${RESOLVED_VERSION}/icon.png"
+	if curl -fsSL "$ICON_URL" -o "${ICON_DIR}/amos-companion.png"; then
+		ok "Icon downloaded"
+	else
+		warn "Icon not found (will use default)"
+	fi
+
 	# Auto-start
 	if [ -f "${AUTOSTART_DIR}/amos-companion.desktop" ]; then
 		warn "Auto-start already enabled"
@@ -190,7 +226,7 @@ DESKTOP_EOF
 		cat >"${AUTOSTART_DIR}/amos-companion.desktop" <<'AUTOSTART_EOF'
 [Desktop Entry]
 Name=AMOS Companion
-Exec=amos-companion
+Exec=${INSTALL_DIR}/amos-companion
 Hidden=false
 X-GNOME-Autostart-enabled=true
 AUTOSTART_EOF
@@ -225,3 +261,85 @@ fi
 echo ""
 info "Run: ${BOLD}amos-companion${RESET}"
 echo ""
+
+# ── Uninstall ────────────────────────────────────────────────────────────────
+uninstall() {
+	info "Uninstalling AMOS Companion..."
+
+	# Stop the app if running
+	if pgrep -x amos-companion >/dev/null 2>&1; then
+		info "Stopping AMOS Companion..."
+		pkill amos-companion 2>/dev/null || true
+		sleep 1
+	fi
+
+	# Remove binary
+	if [ -f "${INSTALL_DIR}/amos-companion" ]; then
+		rm -f "${INSTALL_DIR}/amos-companion"
+		ok "Binary removed"
+	fi
+
+	# Remove scrcpy server
+	if [ -f "${INSTALL_DIR}/scrcpy-server.jar" ]; then
+		rm -f "${INSTALL_DIR}/scrcpy-server.jar"
+		ok "scrcpy-server removed"
+	fi
+
+	# Remove desktop entry
+	DESKTOP_DIR="${HOME}/.local/share/applications"
+	if [ -f "${DESKTOP_DIR}/amos-companion.desktop" ]; then
+		rm -f "${DESKTOP_DIR}/amos-companion.desktop"
+		ok "Desktop entry removed"
+	fi
+
+	# Remove autostart entry
+	AUTOSTART_DIR="${HOME}/.config/autostart"
+	if [ -f "${AUTOSTART_DIR}/amos-companion.desktop" ]; then
+		rm -f "${AUTOSTART_DIR}/amos-companion.desktop"
+		ok "Auto-start entry removed"
+	fi
+
+	# Remove icon
+	ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+	if [ -f "${ICON_DIR}/amos-companion.png" ]; then
+		rm -f "${ICON_DIR}/amos-companion.png"
+		ok "Icon removed"
+	fi
+
+	# Remove config (ask first)
+	CONFIG_DIR="${HOME}/.config/amos-companion"
+	if [ -f "${CONFIG_DIR}/config.toml" ]; then
+		echo ""
+		printf "%sRemove config and data (%s)? [y/N]: %s" "$YELLOW" "$CONFIG_DIR" "$RESET"
+		read -r response
+		case "$response" in
+		[yY])
+			rm -rf "${CONFIG_DIR}"
+			ok "Config removed"
+			;;
+		*)
+			warn "Config kept at ${CONFIG_DIR}"
+			;;
+		esac
+	fi
+
+	# Remove logs
+	LOG_DIR="${HOME}/.local/share/amos-companion"
+	if [ -d "${LOG_DIR}" ]; then
+		rm -rf "${LOG_DIR}"
+		ok "Logs removed"
+	fi
+
+	echo ""
+	info "AMOS Companion uninstalled!"
+	info "Run '${BOLD}amos-companion${RESET}' to reinstall."
+}
+
+# Check for uninstall flag
+case "$1" in
+--uninstall | -u)
+	INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+	uninstall
+	exit 0
+	;;
+esac

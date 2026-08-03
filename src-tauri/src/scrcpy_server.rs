@@ -321,11 +321,12 @@ impl ScrcpyServer {
         // audio=false, control=false since we only read video
         info!("Starting scrcpy-server on device");
 
-        // Force H.264 Baseline Profile — Chrome on Linux can decode it.
-        // Without this, the tablet encodes High Profile (avc1.64001f) which
-        // WebCodecs can't decode on Linux (no hardware H.264 High decoder).
+        // Use VP8 codec instead of H.264 for maximum browser compatibility.
+        // H.264 High Profile (avc1.64001f) is NOT supported by WebCodecs on Linux
+        // because most Linux systems lack H.264 hardware decoder and software
+        // decoder support varies. VP8 is universally supported by all browsers.
         let start_cmd = format!(
-            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} tunnel_forward=true audio=false control=false video_bit_rate={} max_fps={} max_size={} video-encoder-options=profile=baseline",
+            "CLASSPATH={} app_process / com.genymobile.scrcpy.Server {} tunnel_forward=true audio=false control=false video_codec=vp8 video_bit_rate={} max_fps={} max_size={}",
             device_server_path,
             SCRCPY_SERVER_VERSION,
             DEFAULT_BITRATE,

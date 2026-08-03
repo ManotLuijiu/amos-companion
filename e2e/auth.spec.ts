@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 const TEST_ACCOUNTS = [
 	{
 		email: "munchira_01@hotmail.com",
-		password: "CHANGE_ME", // Set E2E_TEST_PASSWORD env var
+		password: "munchira_01", // Real test account
 		label: "Hotmail account",
 	},
 ] as const;
