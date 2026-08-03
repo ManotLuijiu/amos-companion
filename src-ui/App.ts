@@ -21,10 +21,17 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 declare const __APP_VERSION__: string;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface InstallMode {
+	mode: "deb" | "appimage" | "tarball" | "unknown";
+	path: string;
+}
 
 interface AgentStatus {
 	agent_online: boolean;
@@ -3482,41 +3489,29 @@ function setupEventListeners(): void {
 	});
 }
 
-// ─── Version Update Checker ───────────────────────────────────────────────────
+// ─── Version Update Checker (Tauri Built-in Updater) ───────────────────────────
 
-const VERSION_MANIFEST_URL =
-	"https://releases.amos.moo-vpn.online/companion/latest/manifest.json";
-
-interface VersionManifest {
-	latest: string;
-	tag: string;
-	released: string;
-	releases: Record<
-		string,
-		{
-			appimage: { amd64: string; arm64: string };
-			tarball: { amd64: string; arm64: string };
-			installScript: string;
-		}
-	>;
-}
-
-/** Compare two semver strings. Returns negative if a < b. */
-function compareVersions(a: string, b: string): number {
-	const partsA = a.split(".").map((p) => parseInt(p, 10) || 0);
-	const partsB = b.split(".").map((p) => parseInt(p, 10) || 0);
-	for (let i = 0; i < 3; i++) {
-		const av = partsA[i] ?? 0;
-		const bv = partsB[i] ?? 0;
-		if (av !== bv) return av - bv;
+/** Get install mode from backend */
+async function getInstallMode(): Promise<InstallMode> {
+	try {
+		return await invoke<InstallMode>("get_install_mode");
+	} catch {
+		return { mode: "unknown" as const, path: "" };
 	}
-	return 0;
 }
 
-/** Show the update banner at the top of the app. */
-function showUpdateBanner(latestVersion: string, installScript: string): void {
+/** Show the update banner at the top of the app using Tauri's built-in updater. */
+async function showUpdateBanner(
+	update: Awaited<ReturnType<typeof check>>,
+): Promise<void> {
+	if (!update) return;
+
 	// Avoid duplicates
 	if (document.getElementById("update-banner")) return;
+
+	// Check install mode to show appropriate update action
+	const installMode = await getInstallMode();
+	addLog("debug", `Install mode: ${installMode.mode} at ${installMode.path}`);
 
 	const banner = document.createElement("div");
 	banner.id = "update-banner";
@@ -3530,14 +3525,22 @@ function showUpdateBanner(latestVersion: string, installScript: string): void {
 	text.className = "update-banner-text";
 	const strong = document.createElement("strong");
 	strong.textContent = "Update available:";
-	const versionText = document.createTextNode(` v${latestVersion} is ready.`);
+	const versionText = document.createTextNode(` v${update.version} is ready.`);
 	text.appendChild(strong);
 	text.appendChild(versionText);
-	const installLink = document.createElement("a");
+	const installLink = document.createElement("button");
 	installLink.className = "update-banner-btn";
-	installLink.href = "#";
 	installLink.id = "btn-install-update";
-	installLink.textContent = "Install";
+
+	// For .deb installs, don't use Tauri's auto-updater (would switch to AppImage)
+	// Instead, guide user to download .deb manually
+	if (installMode.mode === "deb") {
+		installLink.textContent = "Get .deb Update";
+		installLink.title = "For .deb installs, download the new .deb file";
+	} else {
+		installLink.textContent = "Install & Restart";
+	}
+
 	const closeBtn = document.createElement("button");
 	closeBtn.className = "update-banner-close";
 	closeBtn.id = "btn-close-update-banner";
@@ -3550,63 +3553,71 @@ function showUpdateBanner(latestVersion: string, installScript: string): void {
 	banner.appendChild(content);
 
 	// Dismiss handler
-	banner
-		.querySelector("#btn-close-update-banner")
-		?.addEventListener("click", () => {
-			banner.remove();
-		});
+	closeBtn.addEventListener("click", () => {
+		banner.remove();
+	});
 
-	// Install handler: open install script in browser
-	banner
-		.querySelector("#btn-install-update")
-		?.addEventListener("click", async (e) => {
-			e.preventDefault();
-			addLog("info", `Opening update script: ${installScript}`);
-			await invoke("open_url", { url: installScript });
-		});
+	// Install handler: download update and restart
+	installLink.addEventListener("click", async () => {
+		try {
+			if (installMode.mode === "deb") {
+				// For .deb installs, open download page
+				addLog("info", "Opening download page for .deb update...");
+				await invoke("open_url", {
+					url: `https://app.amos.moo-vpn.online/devices?update=${update.version}`,
+				});
+			} else {
+				// For AppImage/tarball, use Tauri's auto-updater
+				addLog("info", `Downloading update v${update.version}...`);
+				installLink.textContent = "Downloading...";
+				installLink.disabled = true;
+
+				await update.downloadAndInstall();
+
+				addLog("info", "Update downloaded, restarting...");
+				await relaunch();
+			}
+		} catch (err) {
+			addLog("error", `Update failed: ${err}`);
+			installLink.textContent = "Install Failed - Retry?";
+			installLink.disabled = false;
+		}
+	});
 
 	// Prepend to app root so it appears at top
 	const appRoot = document.getElementById("app");
 	if (appRoot) {
 		appRoot.prepend(banner);
-		addLog("info", `Update banner shown for v${latestVersion}`);
+		addLog(
+			"info",
+			`Update banner shown for v${update.version} (mode: ${installMode.mode})`,
+		);
 	} else {
-		// Fallback: prepend to body
 		document.body.prepend(banner);
 	}
 }
 
-/** Check for updates and show banner if a newer version is available. */
+/**
+ * Check for updates using Tauri's built-in updater.
+ * Shows a banner if a newer version is available.
+ * User can click to download and restart.
+ */
 async function checkForUpdate(): Promise<void> {
-	const currentVersion = __APP_VERSION__;
-
 	try {
-		const response = await fetch(VERSION_MANIFEST_URL, {
-			// Cache-bust: don't use CDN cache, always get latest manifest
-			cache: "no-store",
-		});
-		if (!response.ok) {
-			addLog("debug", `Version check failed: HTTP ${response.status}`);
-			return;
-		}
+		addLog("debug", "Checking for updates...");
+		const update = await check();
 
-		const manifest = (await response.json()) as VersionManifest;
-		const latest = manifest.latest;
-
-		if (compareVersions(latest, currentVersion) > 0) {
-			addLog("info", `Update available: v${currentVersion} → v${latest}`);
-
-			// Get install script URL (use versioned URL from manifest)
-			const installScript =
-				manifest.releases[latest]?.installScript ??
-				`https://releases.amos.moo-vpn.online/companion/companion/${manifest.tag}/install.sh`;
-
-			showUpdateBanner(latest, installScript);
+		if (update) {
+			addLog(
+				"info",
+				`Update available: v${__APP_VERSION__} → v${update.version}`,
+			);
+			showUpdateBanner(update);
 		} else {
-			addLog("debug", `On latest version: v${currentVersion}`);
+			addLog("debug", `On latest version: v${__APP_VERSION__}`);
 		}
 	} catch (err) {
-		// Network errors (offline, R2 unreachable) are non-fatal
+		// Network errors (offline, updater not configured) are non-fatal
 		addLog("debug", `Update check skipped: ${err}`);
 	}
 }

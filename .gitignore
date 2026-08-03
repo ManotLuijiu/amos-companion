@@ -19,6 +19,7 @@ Thumbs.db
 # Rust
 Cargo.lock
 *.pdb
+*.sig
 
 # Logs
 *.log

@@ -18,6 +18,9 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
   AWS_DEFAULT_REGION: "auto"
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  # Tauri signing keys (set in GitHub repo Settings > Secrets)
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 permissions:
   contents: write
@@ -167,6 +170,8 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: /usr/bin/gcc
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: /usr/bin/aarch64-linux-gnu-gcc
+          # Signing is enabled via createUpdaterArtifacts in tauri.conf.json
+          # Keys are provided via env vars from secrets
 
       - name: Find AppImage
         id: find-appimage
@@ -174,6 +179,19 @@ jobs:
           APPIMAGE=$(find src-tauri/target -name "*.AppImage" -type f | grep bundle | head -1)
           echo "appimage_path=$APPIMAGE" >> $GITHUB_OUTPUT
           echo "Found AppImage: $APPIMAGE"
+
+      - name: Extract AppImage signature
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        id: extract-signature
+        run: |
+          APPIMAGE="${{ steps.find-appimage.outputs.appimage_path }}"
+          if [ -f "${APPIMAGE}.sig" ]; then
+            SIGNATURE=$(cat "${APPIMAGE}.sig")
+            echo "signature=$SIGNATURE" >> $GITHUB_OUTPUT
+            echo "Found signature: ${SIGNATURE:0:50}..."
+          else
+            echo "No signature file found"
+          fi
 
       # ── Find .deb package ────────────────────────────────────────────────────
       - name: Find .deb package
@@ -252,6 +270,26 @@ jobs:
             --acl public-read
           echo "Uploaded: AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
           echo "Public URL: https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/${VERSION}/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage"
+
+      - name: Upload AppImage signature for Tauri updater
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          APPIMAGE_PATH="${{ steps.find-appimage.outputs.appimage_path }}"
+          if [ -f "${APPIMAGE_PATH}.sig" ]; then
+            aws s3 cp "${APPIMAGE_PATH}.sig" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage.sig" \
+              --endpoint-url "${{ env.R2_ENDPOINT }}" \
+              --region auto \
+              --acl public-read
+            echo "Uploaded: AMOS_Companion_${VERSION}_${{ matrix.suffix }}.AppImage.sig"
+          else
+            echo "No signature file found for AppImage"
+          fi
 
       - name: Upload .deb package to R2
         run: |
@@ -375,18 +413,20 @@ jobs:
           generate_release_notes: true
           token: ${{ secrets.RELEASE_TOKEN }}
 
-  # ── Update version manifest ───────────────────────────────────────────────────
+  # ── Update version manifest (user-facing) ──────────────────────────────────────────
+  # This creates manifest.json for the frontend download page (companion/latest/manifest.json)
   update-manifest:
     needs: [build-linux, build-windows]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
     runs-on: ubuntu-latest
     steps:
-      - name: Install AWS CLI
+      - name: Install AWS CLI & jq
         run: |
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
           unzip -o awscliv2.zip >/dev/null 2>&1
           sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
           rm -rf awscliv2.zip aws
+          sudo apt-get update && sudo apt-get install -y jq
 
       - name: Generate version
         id: version
@@ -402,13 +442,10 @@ jobs:
 
       - name: Build manifest.json
         run: |
-          # Install jq for JSON manipulation
-          sudo apt-get update && sudo apt-get install -y jq
-
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
 
-          # Build per-platform URLs (R2 public bucket URL) — AppImage now in version folder
+          # Build per-platform URLs
           R2_PUBLIC="https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion"
           APPIMAGE_AMD64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_amd64.AppImage"
           APPIMAGE_ARM64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_aarch64.AppImage"
@@ -418,12 +455,10 @@ jobs:
           DEB_ARM64="${R2_PUBLIC}/${VERSION}/amos-companion_arm64_${VERSION}.deb"
           INSTALL_SH="${R2_PUBLIC}/${VERSION}/install.sh"
 
-          # Download existing manifest to merge (ignore error if not exists)
+          # Download existing manifest to merge
           if aws s3 cp "s3://${{ env.R2_BUCKET }}/companion/latest/manifest.json" existing_manifest.json \
              --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto 2>/dev/null; then
             echo "Merging with existing manifest..."
-            # Use jq to merge new version into existing manifest
-            # Add new version's data while keeping existing versions
             cat existing_manifest.json | \
               jq --arg v "${VERSION}" \
                  --arg tag "${TAG}" \
@@ -455,23 +490,145 @@ jobs:
 
       - name: Upload manifest.json to R2
         run: |
-          TAG="${{ github.ref_name }}"
-
+          VERSION="${{ steps.version.outputs.version }}"
           # Upload versioned manifest
           aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/manifest.json" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read \
             --content-type application/json
-
-          # Update latest manifest (always points to newest)
+          # Update latest manifest
           aws s3 cp manifest.json "s3://${{ env.R2_BUCKET }}/companion/latest/manifest.json" \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
             --region auto \
             --acl public-read \
             --content-type application/json
+          echo "User-facing manifest.json updated for version $VERSION"
 
-          echo "Manifest updated for version ${{ steps.version.outputs.version }}"
+  # ── Generate Tauri updater manifest with signatures ─────────────────────────────────
+  # This creates update-manifest.json for Tauri's built-in updater
+  update-updater-manifest:
+    needs: [build-linux, build-windows]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install AWS CLI & jq
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -o awscliv2.zip >/dev/null 2>&1
+          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+          rm -rf awscliv2.zip aws
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Generate version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#companion/}"
+          VERSION="${VERSION#v}"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Download AppImage signatures from R2
+        id: download-sigs
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          R2_PUBLIC="https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion"
+
+          # Download amd64 signature
+          if aws s3 cp "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/AMOS_Companion_${VERSION}_amd64.AppImage.sig" /tmp/amd64.sig \
+             --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto 2>/dev/null; then
+            echo "Downloaded amd64 signature"
+            SIG_AMD64=$(cat /tmp/amd64.sig)
+          else
+            echo "No amd64 signature found"
+            SIG_AMD64=""
+          fi
+
+          # Download arm64 signature
+          if aws s3 cp "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/AMOS_Companion_${VERSION}_aarch64.AppImage.sig" /tmp/arm64.sig \
+             --endpoint-url "${{ env.R2_ENDPOINT }}" --region auto 2>/dev/null; then
+            echo "Downloaded arm64 signature"
+            SIG_ARM64=$(cat /tmp/arm64.sig)
+          else
+            echo "No arm64 signature found"
+            SIG_ARM64=""
+          fi
+
+          echo "sig_amd64=$SIG_AMD64" >> $GITHUB_OUTPUT
+          echo "sig_arm64=$SIG_ARM64" >> $GITHUB_OUTPUT
+
+      - name: Build Tauri update-manifest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          R2_PUBLIC="https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion"
+
+          # Get signatures (may be empty if not signed)
+          SIG_AMD64="${{ steps.download-sigs.outputs.sig_amd64 }}"
+          SIG_ARM64="${{ steps.download-sigs.outputs.sig_arm64 }}"
+
+          # URLs for all platforms
+          APPIMAGE_AMD64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_amd64.AppImage"
+          APPIMAGE_ARM64="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_aarch64.AppImage"
+          DMG_URL="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_aarch64.dmg"
+          EXE_URL="${R2_PUBLIC}/${VERSION}/AMOS_Companion_${VERSION}_x64-setup.exe"
+
+          # Build Tauri-style update manifest (JSON format for Tauri updater plugin)
+          cat > update-manifest.json << MANIFEST
+          {
+            "version": "${VERSION}",
+            "notes": "Auto-update support. AMOS Companion v${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "linux-x86_64": {
+                "signature": "${SIG_AMD64}",
+                "url": "${APPIMAGE_AMD64}"
+              },
+              "linux-aarch64": {
+                "signature": "${SIG_ARM64}",
+                "url": "${APPIMAGE_ARM64}"
+              },
+              "darwin-aarch64": {
+                "signature": "${SIG_ARM64}",
+                "url": "${DMG_URL}"
+              },
+              "darwin-x86_64": {
+                "signature": "${SIG_AMD64}",
+                "url": "${DMG_URL}"
+              },
+              "windows-x64": {
+                "signature": "",
+                "url": "${EXE_URL}"
+              }
+            }
+          }
+          MANIFEST
+
+          echo "Generated Tauri update-manifest.json:"
+          cat update-manifest.json
+
+      - name: Upload Tauri update-manifest.json to R2
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Upload to companion/latest/update-manifest.json (endpoint configured in tauri.conf.json)
+          aws s3 cp update-manifest.json "s3://${{ env.R2_BUCKET }}/companion/latest/update-manifest.json" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read \
+            --content-type application/json
+          echo "Tauri updater manifest uploaded for version $VERSION"
+
+          # Also upload to versioned path for debugging
+          aws s3 cp update-manifest.json "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/update-manifest.json" \
+            --endpoint-url "${{ env.R2_ENDPOINT }}" \
+            --region auto \
+            --acl public-read \
+            --content-type application/json
+          echo "Versioned updater manifest uploaded"
 
   # Cleanup old builds - keep only last 3 versions by version number
   # Run even if some builds fail, so we don't accumulate old versions
