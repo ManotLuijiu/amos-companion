@@ -326,16 +326,18 @@ jobs:
 
       - name: Upload Install Script to R2
         run: |
-          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/${VERSION}/install.sh" \
+          # install.sh lives only in latest/ — never in versioned folders
+          # (app.amos links only to companion/latest/install.sh)
+          aws s3api put-object \
+            --bucket "${{ env.R2_BUCKET }}" \
+            --key "companion/latest/install.sh" \
+            --body "scripts/install.sh" \
+            --content-type "text/x-sh; charset=utf-8" \
+            --content-disposition 'attachment; filename="install.sh"' \
+            --cache-control 'max-age=3600' \
             --endpoint-url "${{ env.R2_ENDPOINT }}" \
-            --region auto \
-            --acl public-read
-          # Also upload to latest/ for VERSION=latest install.sh
-          aws s3 cp "scripts/install.sh" "s3://${{ env.R2_BUCKET }}/companion/latest/install.sh" \
-            --endpoint-url "${{ env.R2_ENDPOINT }}" \
-            --region auto \
-            --acl public-read
-          echo "Uploaded: install.sh"
+            --region auto
+          echo "Uploaded: companion/latest/install.sh"
 
       - name: Create GitHub Release
         if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/companion/')

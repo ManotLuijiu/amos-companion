@@ -1526,6 +1526,7 @@ interface DependencyStatus {
 	ffmpeg: boolean;
 	ws_scrcpy: boolean;
 	adb: boolean;
+	gnome_software: boolean;
 	all_installed: boolean;
 	companion_dir: string;
 }
@@ -1550,6 +1551,7 @@ async function refreshDepsStatus(): Promise<void> {
 		if (!status.ffmpeg) missing.push("ffmpeg");
 		if (!status.nodejs) missing.push("Node.js");
 		if (!status.ws_scrcpy) missing.push("ws-scrcpy");
+		if (!status.gnome_software) missing.push("GNOME Software");
 
 		if (allOk) {
 			statusEl.textContent = "✅ All installed";

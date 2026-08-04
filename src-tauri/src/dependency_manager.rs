@@ -274,6 +274,25 @@ pub fn are_all_deps_installed() -> bool {
     is_nodejs_installed() && is_scrcpy_installed() && is_ffmpeg_installed() && is_ws_scrcpy_installed() && is_adb_installed()
 }
 
+/// Check if GNOME Software is installed (needed for .deb file handling)
+pub fn is_gnome_software_installed() -> bool {
+    // Check if gnome-software binary exists
+    if let Ok(output) = Command::new("which").arg("gnome-software").output() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() && PathBuf::from(&path).exists() {
+            info!("Found GNOME Software at: {}", path);
+            return true;
+        }
+    }
+    
+    // Also check common install paths
+    if check_path("/usr/bin/gnome-software") || check_path("/usr/local/bin/gnome-software") {
+        return true;
+    }
+    
+    false
+}
+
 // ─── System Installation ────────────────────────────────────────────────────────
 
 /// Try system installation (apt, brew, etc.)
@@ -680,6 +699,48 @@ pub async fn install_adb() -> Result<(), String> {
     Ok(())
 }
 
+/// Install GNOME Software (needed for .deb file handling on Linux)
+/// GNOME Software provides the ability to double-click and install .deb packages
+pub async fn install_gnome_software() -> Result<(), String> {
+    if is_gnome_software_installed() {
+        info!("GNOME Software already installed");
+        return Ok(());
+    }
+
+    let os = OS::current();
+    if os != OS::Linux {
+        info!("GNOME Software is only needed on Linux, skipping on this OS");
+        return Ok(());
+    }
+
+    info!("Installing GNOME Software (needed for .deb file handling)...");
+
+    // Try system install via apt
+    let result = try_system_install("gnome-software").await;
+    
+    match result {
+        Ok(_) => {
+            info!("GNOME Software installed successfully via apt");
+            Ok(())
+        }
+        Err(e) => {
+            warn!("Failed to install GNOME Software via apt: {}", e);
+            // Try installing just the gnome-software-core package as fallback
+            info!("Trying gnome-software-core as fallback...");
+            let core_result = try_system_install("gnome-software-core").await;
+            match core_result {
+                Ok(_) => {
+                    info!("GNOME Software Core installed");
+                    Ok(())
+                }
+                Err(e2) => {
+                    Err(format!("Failed to install GNOME Software: {} (core also failed: {})", e, e2))
+                }
+            }
+        }
+    }
+}
+
 /// Install all dependencies. Returns a multi-line summary string for frontend logging.
 pub async fn install_all() -> Result<String, String> {
     let mut lines = Vec::new();
@@ -715,6 +776,12 @@ pub async fn install_all() -> Result<String, String> {
         Err(e) => lines.push(format!("❌ ADB failed: {}", e)),
     }
 
+    // GNOME Software (for .deb handling on Linux)
+    match install_gnome_software().await {
+        Ok(_) => lines.push("✅ GNOME Software installed".to_string()),
+        Err(e) => lines.push(format!("❌ GNOME Software failed: {}", e)),
+    }
+
     let summary = lines.join("\n");
     info!("Install summary:\n{}", summary);
     Ok(summary)
@@ -730,6 +797,7 @@ pub struct DependencyStatus {
     pub ffmpeg: bool,
     pub ws_scrcpy: bool,
     pub adb: bool,
+    pub gnome_software: bool,
     pub all_installed: bool,
     pub companion_dir: String,
 }
@@ -742,12 +810,13 @@ impl DependencyStatus {
             ffmpeg: is_ffmpeg_installed(),
             ws_scrcpy: is_ws_scrcpy_installed(),
             adb: is_adb_installed(),
+            gnome_software: is_gnome_software_installed(),
             all_installed: are_all_deps_installed(),
             companion_dir: get_companion_dir().to_string_lossy().to_string(),
         };
 
-        info!("Dependency status: Node.js={}, scrcpy={}, ffmpeg={}, ws-scrcpy={}, ADB={}",
-              status.nodejs, status.scrcpy, status.ffmpeg, status.ws_scrcpy, status.adb);
+        info!("Dependency status: Node.js={}, scrcpy={}, ffmpeg={}, ws-scrcpy={}, ADB={}, GNOME Software={}",
+              status.nodejs, status.scrcpy, status.ffmpeg, status.ws_scrcpy, status.adb, status.gnome_software);
 
         status
     }
