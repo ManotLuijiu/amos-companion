@@ -74,7 +74,7 @@
       "open": true
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2MEE0MTI0NzE1QjE2RApSV1J0c1JWSEVxUmdBZ2Y3cWJyN3NuZzI4V2gxN3NBTitVVUZDcTJZcUQvRzc3Vkx5WUVYSzVRVgo=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwMkQ3MTkyNjc0QzYxQzQKUldURVlVeG5rbkV0NE5DcGVGQnVsSHpUTkdKZVEyZlBzci9uaytSanBuUmVvN3JQNC9UZEsyWGEK",
       "endpoints": [
         "https://pub-a612420d2b9c409b9017805eabd46301.r2.dev/companion/latest/update-manifest.json"
       ],
